@@ -770,7 +770,7 @@ fn a_changed_dat_and_a_new_dat_change_exactly_what_they_say() {
     let victim_path = format!("RomVault/Console/Genesis/Sega CD/{victim_game}.zip/{victim_rom}");
     assert_eq!(
         changed_paths,
-        [victim_path.clone()],
+        std::slice::from_ref(&victim_path),
         "only the ROM that left the DAT changes"
     );
     let (_, was) = changed[0];

@@ -312,35 +312,28 @@ fn a_full_scan_of_the_files_into_the_dat_tree_gives_the_cache_values_and_the_sys
     let cache = real_cache(s);
 
     // 2a. Against the cache.
-    let mut present = 0usize;
-    let mut in_cache = 0usize;
-    let mut equal = 0usize;
-    let mut explained: BTreeMap<&'static str, (usize, String)> = BTreeMap::new();
-    let mut unexplained: Vec<String> = Vec::new();
-    let mut never_seen = 0usize;
-    fn walk(
-        n: &RvFile,
-        path: &mut Vec<String>,
-        cache: &RvFile,
-        present: &mut usize,
-        in_cache: &mut usize,
-        equal: &mut usize,
-        never_seen: &mut usize,
-        explained: &mut BTreeMap<&'static str, (usize, String)>,
-        unexplained: &mut Vec<String>,
-    ) {
+    #[derive(Default)]
+    struct Tally {
+        present: usize,
+        in_cache: usize,
+        equal: usize,
+        never_seen: usize,
+        explained: BTreeMap<&'static str, (usize, String)>,
+        unexplained: Vec<String>,
+    }
+    fn walk(n: &RvFile, path: &mut Vec<String>, cache: &RvFile, t: &mut Tally) {
         if (n.is_file() || n.file_type.is_compressed_dir()) && n.got_status != GotStatus::NOT_GOT {
-            *present += 1;
+            t.present += 1;
             match find(cache, &path[1..]) {
                 None => {}
-                Some(c) if c.got_status == GotStatus::NOT_GOT => *never_seen += 1,
+                Some(c) if c.got_status == GotStatus::NOT_GOT => t.never_seen += 1,
                 Some(c) => {
-                    *in_cache += 1;
+                    t.in_cache += 1;
                     let p = path.join("/");
                     let mut ok = true;
                     let mut bad = |col: &str| {
                         ok = false;
-                        unexplained.push(format!("{p}: {col}"));
+                        t.unexplained.push(format!("{p}: {col}"));
                     };
                     // An archive node: 3.8 records the archive file's own size, `ZipFileIndex` 0
                     // and `SizeVerified` (`FileMergeIn` fills them from the listing); older
@@ -354,7 +347,8 @@ fn a_full_scan_of_the_files_into_the_dat_tree_gives_the_cache_values_and_the_sys
                             && n.zip_file_index == Some(0)
                             && n.file_status == FileStatus::SIZE_VERIFIED
                         {
-                            let e = explained
+                            let e = t
+                                .explained
                                 .entry("archive size/index/flags")
                                 .or_insert((0, String::new()));
                             e.0 += 1;
@@ -398,7 +392,10 @@ fn a_full_scan_of_the_files_into_the_dat_tree_gives_the_cache_values_and_the_sys
                         if x == FileStatus::ALT_SIZE_FROM_HEADER.0
                             && n.file_status.has(FileStatus::ALT_SIZE_FROM_HEADER)
                         {
-                            let e = explained.entry("file_status").or_insert((0, String::new()));
+                            let e = t
+                                .explained
+                                .entry("file_status")
+                                .or_insert((0, String::new()));
                             e.0 += 1;
                             e.1 = "AltSizeFromHeader: 3.8 sets it with AltSizeVerified when a copier header is found, the 3.7 cache does not have it".into();
                         } else {
@@ -410,7 +407,7 @@ fn a_full_scan_of_the_files_into_the_dat_tree_gives_the_cache_values_and_the_sys
                             && n.file_mod_time_stamp == 563_657_728
                             && c.file_mod_time_stamp == 629_870_671_200_000_000
                         {
-                            let e = explained.entry("mod_time").or_insert((0, String::new()));
+                            let e = t.explained.entry("mod_time").or_insert((0, String::new()));
                             e.0 += 1;
                             e.1 = "TorrentZip entries: 3.8 stores the packed DOS date/time, the 3.7 cache the 1996-12-24 23:32 ticks".into();
                         } else {
@@ -418,38 +415,27 @@ fn a_full_scan_of_the_files_into_the_dat_tree_gives_the_cache_values_and_the_sys
                         }
                     }
                     if ok {
-                        *equal += 1;
+                        t.equal += 1;
                     }
                 }
             }
         }
         for ch in &n.children {
             path.push(ch.name.clone());
-            walk(
-                ch,
-                path,
-                cache,
-                present,
-                in_cache,
-                equal,
-                never_seen,
-                explained,
-                unexplained,
-            );
+            walk(ch, path, cache, t);
             path.pop();
         }
     }
-    walk(
-        &db.root,
-        &mut vec![String::new()],
-        &cache.root,
-        &mut present,
-        &mut in_cache,
-        &mut equal,
-        &mut never_seen,
-        &mut explained,
-        &mut unexplained,
-    );
+    let mut t = Tally::default();
+    walk(&db.root, &mut vec![String::new()], &cache.root, &mut t);
+    let Tally {
+        present,
+        in_cache,
+        equal,
+        never_seen,
+        explained,
+        unexplained,
+    } = t;
     eprintln!("files and archives present: {present}; the cache holds {in_cache} of them as present and {never_seen} as never seen; fully equal: {equal}");
     for (k, (n, why)) in &explained {
         eprintln!("  explained {k}: {n} nodes, {why}");

@@ -684,8 +684,10 @@ fn clear_description_blanks_a_description_that_repeats_the_name() {
 // ---- step 6 ----------------------------------------------------------------------------------
 
 fn family() -> DatDir {
-    let mut bios_info = DatGame::default();
-    bios_info.is_bios = "yes".into();
+    let bios_info = DatGame {
+        is_bios: "yes".into(),
+        ..DatGame::default()
+    };
     root(vec![
         game_with("bios", bios_info, vec![rom("b.rom", 10, 0xb105)]),
         game_with(

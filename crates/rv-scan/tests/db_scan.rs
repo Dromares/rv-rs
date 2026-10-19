@@ -87,7 +87,10 @@ fn zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
 }
 
 /// A DAT with the games `(name, [(rom, data)])`, hashes written as CRC only.
-fn dat_text(header: &str, games: &[(&str, &[(&str, &[u8])])]) -> String {
+type Rom<'a> = (&'a str, &'a [u8]);
+type Game<'a> = (&'a str, &'a [Rom<'a>]);
+
+fn dat_text(header: &str, games: &[Game<'_>]) -> String {
     let mut s = format!("clrmamepro (\n\tname \"T\"\n{header})\n");
     for (name, roms) in games {
         s.push_str(&format!("game (\n\tname \"{name}\"\n"));
@@ -861,7 +864,46 @@ fn a_quick_scan_is_followed_up_by_a_real_one_for_archives_that_were_never_fully_
     let r = scan(&mut db, &s, ScanLevel::Level2);
     assert_eq!(r.archives_scanned, 1);
     let a = &node(&db, &format!("{ROMS}/Alpha.zip")).children[0];
-    assert_eq!(rv_scan::hash::to_hex(a.sha1.as_ref().unwrap()), hashes(A).sha1);
+    assert_eq!(
+        rv_scan::hash::to_hex(a.sha1.as_ref().unwrap()),
+        hashes(A).sha1
+    );
     assert!(node(&db, &format!("{ROMS}/Alpha.zip")).is_deep_scanned(&s));
     assert_eq!(scan(&mut db, &s, ScanLevel::Level2).archives_scanned, 0);
+}
+
+#[test]
+fn a_loose_file_that_was_only_matched_by_time_stamp_is_hashed_when_a_deeper_scan_comes() {
+    let t = Tmp::new("quickfile");
+    let s = file_only_settings(&t);
+    let mut db = load(&t, &s, &dat_text("", &[("Alpha", &[("a.nes", A)])]));
+    t.write("RomRoot/Console/NES/Roms/Alpha/a.nes", A);
+    scan(&mut db, &s, ScanLevel::Level2);
+    // Make the item look like one a level 1 scan left: same time stamp and size, never hashed.
+    {
+        let mut cur = &mut db.root;
+        for p in ["RomVault", "Console", "NES", "Roms", "Alpha", "a.nes"] {
+            let i = cur.children.iter().position(|c| c.name == p).unwrap();
+            cur = &mut cur.children[i];
+        }
+        cur.file_status = FileStatus::SIZE_FROM_DAT.with(FileStatus::CRC_FROM_DAT);
+        cur.sha1 = None;
+        cur.md5 = None;
+    }
+    assert_eq!(
+        scan(&mut db, &s, ScanLevel::Level1).files_hashed,
+        0,
+        "level 1 trusts the stamp"
+    );
+    assert_eq!(
+        scan(&mut db, &s, ScanLevel::Level2).files_hashed,
+        1,
+        "level 2 does not"
+    );
+    let a = &node(&db, &format!("{ROMS}/Alpha")).children[0];
+    assert_eq!(
+        rv_scan::hash::to_hex(a.sha1.as_ref().unwrap()),
+        hashes(A).sha1
+    );
+    assert_eq!(scan(&mut db, &s, ScanLevel::Level2).files_hashed, 0);
 }

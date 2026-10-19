@@ -1,7 +1,7 @@
 //! The DAT update on small trees in a temp directory, and the predicates it is built from.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
 use rv_core::progress::{CancelFlag, NoProgress};
@@ -50,7 +50,10 @@ impl Drop for Tmp {
     }
 }
 
-fn dat_text(games: &[(&str, &[(&str, u64, &str)])]) -> String {
+type Rom<'a> = (&'a str, u64, &'a str);
+type Game<'a> = (&'a str, &'a [Rom<'a>]);
+
+fn dat_text(games: &[Game<'_>]) -> String {
     let mut s = String::from("clrmamepro (\n\tname \"T\"\n\tdescription \"T\"\n)\n");
     for (name, roms) in games {
         s.push_str(&format!(
