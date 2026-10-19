@@ -1,6 +1,6 @@
 [package]
 name = "rv-update"
-description = "rv-rs self-update from GitHub Releases"
+description = "Placeholder, nothing implemented yet: self-update from GitHub Releases"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

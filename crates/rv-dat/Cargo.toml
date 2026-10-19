@@ -1,6 +1,6 @@
 [package]
 name = "rv-dat"
-description = "rv-rs DAT readers and writers"
+description = "Placeholder, nothing implemented yet: DAT readers and writers"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

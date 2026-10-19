@@ -1,6 +1,6 @@
 [package]
 name = "rv-core"
-description = "rv-rs data model and settings"
+description = "Placeholder, nothing implemented yet: data model and settings"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -1,6 +1,6 @@
 [package]
 name = "rv-online"
-description = "rv-rs online services client"
+description = "Placeholder, nothing implemented yet: online services client"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -1,6 +1,6 @@
 [package]
 name = "rv-fix"
-description = "rv-rs fix finder and fixer"
+description = "Placeholder, nothing implemented yet: fix finder and fixer"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

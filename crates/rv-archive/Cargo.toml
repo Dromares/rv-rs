@@ -1,6 +1,6 @@
 [package]
 name = "rv-archive"
-description = "rv-rs zip, 7z and CHD handling"
+description = "Placeholder, nothing implemented yet: zip, 7z and CHD handling"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

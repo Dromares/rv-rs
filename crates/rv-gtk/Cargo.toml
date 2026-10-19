@@ -1,6 +1,6 @@
 [package]
 name = "rv-gtk"
-description = "rv-rs GTK4 interface"
+description = "Placeholder, nothing implemented yet: GTK4 interface"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
