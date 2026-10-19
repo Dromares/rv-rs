@@ -6,7 +6,7 @@
 //!     -- --ignored --nocapture
 //! ```
 //!
-//! `RV_FIXTURES_DIR` must hold `RomRoot-sample/` (copies of zips, one `.7z` and two `.chd`, with a
+//! `RV_FIXTURES_DIR` must hold `RomRoot-sample/` (copies of TorrentZipped zips, with a
 //! `MANIFEST.sha256`). With the variable unset, or a listed file missing, these tests fail rather
 //! than pass, so an ignored run never looks green by accident.
 
