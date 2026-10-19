@@ -7,7 +7,7 @@
 //! 2. the user's tree check boxes are remembered;
 //! 3. `DatRoot` is walked ([`recursive_dat_tree`]);
 //! 4. DATs in the database that are gone or changed on disk are removed, with the items that
-//!    came from them ([`remove_old_dats`], clean-up);
+//!    came from them (`remove_old_dats`, clean-up);
 //! 5. each new or changed DAT is read, cleaned ([`crate::clean`]) and merged into the tree;
 //! 6. tree rows of directories that no DAT claims any more go, and the remembered check boxes
 //!    come back.
