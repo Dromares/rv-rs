@@ -840,3 +840,28 @@ fn a_target_that_is_not_in_the_tree_is_an_error_and_selected_scans_the_ticked_ro
     .unwrap();
     assert!(!r.roots_scanned.contains(&ROMS.to_owned()), "{r:?}");
 }
+
+#[test]
+fn a_quick_scan_is_followed_up_by_a_real_one_for_archives_that_were_never_fully_read() {
+    let t = Tmp::new("quick");
+    let s = t.settings();
+    let mut db = load(&t, &s, &dat_text("", &[("Alpha", &[("a.nes", A)])]));
+    t.write("RomRoot/Console/NES/Roms/Alpha.zip", &zip(&[("a.nes", A)]));
+    // Level 1 trusts the archive's own CRCs: nothing is decoded, so no hash but the CRC exists.
+    let r = scan(&mut db, &s, ScanLevel::Level1);
+    assert_eq!(r.archives_scanned, 1);
+    let alpha = node(&db, &format!("{ROMS}/Alpha.zip"));
+    let a = &alpha.children[0];
+    assert_eq!(a.rep_status, RepStatus::CORRECT);
+    assert!(a.sha1.is_none() && a.md5.is_none());
+    assert!(!alpha.is_deep_scanned(&s));
+    // Level 1 again: nothing changed, nothing is read.
+    assert_eq!(scan(&mut db, &s, ScanLevel::Level1).archives_scanned, 0);
+    // Level 2 does not take the time stamp as proof for an archive that was never fully read.
+    let r = scan(&mut db, &s, ScanLevel::Level2);
+    assert_eq!(r.archives_scanned, 1);
+    let a = &node(&db, &format!("{ROMS}/Alpha.zip")).children[0];
+    assert_eq!(rv_scan::hash::to_hex(a.sha1.as_ref().unwrap()), hashes(A).sha1);
+    assert!(node(&db, &format!("{ROMS}/Alpha.zip")).is_deep_scanned(&s));
+    assert_eq!(scan(&mut db, &s, ScanLevel::Level2).archives_scanned, 0);
+}
