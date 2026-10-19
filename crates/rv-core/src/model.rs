@@ -4,6 +4,7 @@ use crate::enums::{
     DatFlags, DatStatus, FileStatus, FileType, GotStatus, HeaderFileType, MiaStatus, ToSortDirType,
     TreeSelect, ZipStructure,
 };
+use crate::rep_status::RepStatus;
 
 /// One `(id, value)` metadata pair of a [`RvDat`] or [`RvGame`] (`RvDat.cs:150-154`,
 /// `RvGame.cs:130-134`). Ids are stored ascending and must stay that way, because the
@@ -28,9 +29,23 @@ pub struct RvDat {
     pub time_stamp: i64,
     pub dat_flags: DatFlags,
     pub entries: Vec<MetaEntry>,
+    /// In memory only, never stored. Names this DAT so that nodes can point at it while the DAT
+    /// lists change; ROMVault points at the object itself (`RvFile.Dat`). `0` until
+    /// [`crate::Database`] assigns one.
+    pub uid: u32,
 }
 
 impl RvDat {
+    /// A DAT with no uid yet.
+    pub fn new(time_stamp: i64, dat_flags: DatFlags, entries: Vec<MetaEntry>) -> RvDat {
+        RvDat {
+            time_stamp,
+            dat_flags,
+            entries,
+            uid: 0,
+        }
+    }
+
     /// The value for a `dat_data` id.
     pub fn get(&self, id: u8) -> Option<&str> {
         find_meta(&self.entries, id)
@@ -114,6 +129,14 @@ pub struct RvFile {
     pub to_sort_type: Option<ToSortDirType>,
     pub mia_status: Option<MiaStatus>,
     pub file_status: FileStatus,
+    /// In memory only (cache section 5.13): the status the user sees, derived from
+    /// `(file_type, dat_status, got_status)`. `UnSet` until [`RvFile::rep_status_reset`] runs.
+    pub rep_status: RepStatus,
+    /// In memory only: the `RvFile.Dat` pointer, as [`RvDat::uid`]; `0` for none. Kept in step
+    /// with `dat_index` by [`crate::Database`].
+    pub dat_uid: u32,
+    /// In memory only: `RvFile.SearchFound`, used while pairing entries during a merge.
+    pub search_found: bool,
 }
 
 impl RvFile {
@@ -152,6 +175,9 @@ impl RvFile {
             to_sort_type: None,
             mia_status: None,
             file_status: FileStatus::default(),
+            rep_status: RepStatus::UN_SET,
+            dat_uid: 0,
+            search_found: false,
         }
     }
 

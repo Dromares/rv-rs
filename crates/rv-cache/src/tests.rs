@@ -74,20 +74,16 @@ fn kitchen_sink(version: i32) -> CacheFile {
     });
     rom_vault.file_mod_time_stamp = 638_000_000_000_000_000;
     rom_vault.dir_dats = vec![
-        RvDat {
-            time_stamp: 638_100_000_000_000_000,
-            dat_flags: DatFlags::AUTO_ADDED_DIRECTORY.with(DatFlags::SINGLE_ARCHIVE),
-            entries: vec![
+        RvDat::new(
+            638_100_000_000_000_000,
+            DatFlags::AUTO_ADDED_DIRECTORY.with(DatFlags::SINGLE_ARCHIVE),
+            vec![
                 entry(dat_data::DAT_NAME, "Nintendo - Game Boy.dat"),
                 entry(dat_data::DAT_ROOT_FULL_NAME, "Nintendo\\Game Boy.dat"),
                 entry(dat_data::SUB_DIR_TYPE, "2"),
             ],
-        },
-        RvDat {
-            time_stamp: i64::MAX,
-            dat_flags: DatFlags::default(),
-            entries: Vec::new(),
-        },
+        ),
+        RvDat::new(i64::MAX, DatFlags::default(), Vec::new()),
     ];
 
     let mut games = RvFile::new(FileType::DIR, "Games \u{e9}\u{65e5}\u{672c}");

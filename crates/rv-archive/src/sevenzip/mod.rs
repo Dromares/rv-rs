@@ -218,7 +218,17 @@ impl<R: Read + Seek> SevenZipArchive<R> {
 
     /// Decode every entry once, in order, giving each to `f` as a checked reader. Each folder is
     /// decoded a single time, so this is the way to read a solid archive.
-    pub fn for_each_entry<F>(&mut self, mut f: F) -> Result<()>
+    pub fn for_each_entry<F>(&mut self, f: F) -> Result<()>
+    where
+        F: FnMut(&SevenZipEntry, &mut dyn Read) -> Result<()>,
+    {
+        self.for_each_entry_with(true, f)
+    }
+
+    /// [`SevenZipArchive::for_each_entry`] that can leave the CRC32 unchecked
+    /// (`check_crc` false); the length is checked either way. For a scanner that hashes the data
+    /// itself and wants the bytes of an entry whose CRC is wrong.
+    pub fn for_each_entry_with<F>(&mut self, check_crc: bool, mut f: F) -> Result<()>
     where
         F: FnMut(&SevenZipEntry, &mut dyn Read) -> Result<()>,
     {
@@ -245,7 +255,7 @@ impl<R: Read + Seek> SevenZipArchive<R> {
                     Box::new(inner.by_ref().take(e.size)),
                     e.name.clone(),
                     e.size,
-                    e.crc32,
+                    e.crc32.filter(|_| check_crc),
                 );
                 f(e, &mut checked)?;
                 // Whatever the callback left unread must still be consumed, and checked.

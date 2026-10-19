@@ -5,8 +5,42 @@
 //! software lists, DOSCenter and RomCenter. Writers (`DAT/DATReader/DatWriter/*.cs`): XML,
 //! MAME XML and DOSCenter.
 //!
-//! This crate stops at the *parsed* DAT. ROMVault's 18-step clean-up pipeline (`DatClean`) and
-//! the merge into the database tree are a later phase and are not ported here.
+//! On top of the readers: [`clean`] is `DatReader.ReadInDatFile`'s 18-step clean-up of a parsed
+//! DAT (filters, ids, merge/split/non-merge sets, statuses, archive types, single level, name
+//! clean-up, extensions), and [`update`] is `DatUpdate.UpdateDat`, which walks `DatRoot`, takes
+//! out the DATs that are gone or changed, reads and cleans the new ones and merges them into a
+//! [`rv_core::Database`].
+//!
+//! # Updating a database
+//!
+//! The update owns no state. It takes the database, the settings, a progress sink and a cancel
+//! flag, and it does not write the cache: the caller saves.
+//!
+//! ```no_run
+//! use rv_cache::{load_database, save_database, DatabaseOptions};
+//! use rv_core::progress::{CancelFlag, ProgressEvent};
+//! use rv_core::Settings;
+//! use rv_dat::update::{update_dats, UpdateOptions};
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let settings = Settings::from_xml(&std::fs::read_to_string("RomVault3cfg.xml")?)?;
+//! let cache = std::path::Path::new("RomVault3_3.Cache");
+//! let (mut db, _loaded_from) = load_database(cache, &settings, DatabaseOptions::default())?;
+//!
+//! let cancel = CancelFlag::new(); // `cancel.cancel()` from another thread stops after the current DAT
+//! let progress = |e: ProgressEvent| eprintln!("{e:?}");
+//! let report = update_dats(&mut db, &settings, &UpdateOptions::default(), &progress, &cancel)?;
+//! eprintln!("{} added, {} removed, {} unchanged", report.dats_added.len(),
+//!     report.dats_removed.len(), report.dats_unchanged.len());
+//!
+//! save_database(cache, &mut db)?;
+//! # Ok(()) }
+//! ```
+//!
+//! A DAT is "the same" when its name, modification time and the four rule flags that shape it
+//! are equal; the same DATs are not read again and what is under them is not touched, so
+//! updating twice writes the cache back byte for byte. [`update::UpdateOptions::invalidate`]
+//! forces a re-read (after a change to a rule's compression, merge or filter).
 //!
 //! Citations are `src/` paths of the RVWorld 3.8.0 source through `docs/dat-loading.md` of the
 //! decompile notes, which is not part of this repository.
@@ -27,7 +61,10 @@
 //!   limit.
 //! * `.datz` files with a zstd stream (gzip method 93, `Compress/gZip/gZip.cs:324-333`) are
 //!   not supported; plain deflate gzip is.
+//!
+//! The differences of the clean-up and of the update are listed in [`clean`] and [`update`].
 
+pub mod clean;
 mod cmp;
 mod dos;
 mod error;
@@ -35,6 +72,7 @@ mod model;
 mod romcenter;
 mod text;
 mod time;
+pub mod update;
 pub mod varfix;
 mod write;
 mod xml;

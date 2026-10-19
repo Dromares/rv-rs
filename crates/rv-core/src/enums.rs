@@ -248,3 +248,58 @@ pub mod game_data {
     pub const VERSION: u8 = 26;
     pub const GAME_ID: u8 = 27;
 }
+
+impl FileStatus {
+    /// `FileStatus.DatFlags`: everything that came from a DAT (`FileStatus.cs:45`).
+    pub const DAT_FLAGS: FileStatus = FileStatus(
+        Self::HEADER_FILE_TYPE_FROM_DAT.0
+            | Self::SIZE_FROM_DAT.0
+            | Self::CRC_FROM_DAT.0
+            | Self::SHA1_FROM_DAT.0
+            | Self::MD5_FROM_DAT.0
+            | Self::ALT_SIZE_FROM_DAT.0
+            | Self::ALT_CRC_FROM_DAT.0
+            | Self::ALT_SHA1_FROM_DAT.0
+            | Self::ALT_MD5_FROM_DAT.0
+            | Self::DATE_FROM_DAT.0,
+    );
+    /// `FileStatus.DatAltFlags` (`FileStatus.cs:46`).
+    pub const DAT_ALT_FLAGS: FileStatus = FileStatus(
+        Self::ALT_SIZE_FROM_DAT.0
+            | Self::ALT_CRC_FROM_DAT.0
+            | Self::ALT_SHA1_FROM_DAT.0
+            | Self::ALT_MD5_FROM_DAT.0,
+    );
+    /// `FileStatus.HeaderFlags`: everything read from an archive directory or a file header
+    /// (`FileStatus.cs:47`).
+    pub const HEADER_FLAGS: FileStatus = FileStatus(
+        Self::HEADER_FILE_TYPE_FROM_HEADER.0
+            | Self::SIZE_FROM_HEADER.0
+            | Self::CRC_FROM_HEADER.0
+            | Self::SHA1_FROM_HEADER.0
+            | Self::MD5_FROM_HEADER.0
+            | Self::ALT_SIZE_FROM_HEADER.0
+            | Self::ALT_CRC_FROM_HEADER.0
+            | Self::ALT_SHA1_FROM_HEADER.0
+            | Self::ALT_MD5_FROM_HEADER.0,
+    );
+    /// `FileStatus.VerifiedFlags`: everything the scanner computed from the bytes
+    /// (`FileStatus.cs:48`).
+    pub const VERIFIED_FLAGS: FileStatus = FileStatus(
+        Self::SIZE_VERIFIED.0
+            | Self::CRC_VERIFIED.0
+            | Self::SHA1_VERIFIED.0
+            | Self::MD5_VERIFIED.0
+            | Self::ALT_SIZE_VERIFIED.0
+            | Self::ALT_CRC_VERIFIED.0
+            | Self::ALT_SHA1_VERIFIED.0
+            | Self::ALT_MD5_VERIFIED.0
+            | Self::SHA256_VERIFIED.0
+            | Self::ALT_SHA256_VERIFIED.0,
+    );
+
+    /// `(self & flag) == flag`, ROMVault's `FileStatusIs`.
+    pub const fn has(self, flag: FileStatus) -> bool {
+        self.0 & flag.0 == flag.0
+    }
+}

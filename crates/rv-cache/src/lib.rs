@@ -14,7 +14,13 @@
 //!   renames the temp file over the cache, so a failure part-way leaves the old cache.
 //!
 //! Reading returns what is on disk. ROMVault's load-time repairs are in [`fixups`].
+//!
+//! [`load_database`] and [`save_database`] are `DB.Read` and `DB.Write` for the working copy:
+//! they apply those repairs (optionally), link every node to its DAT, compute every `RepStatus`
+//! the way `DB.Read` does, and on the way out stamp the DAT positions back before the crash-safe
+//! [`save`].
 
+mod database;
 mod error;
 pub mod fixups;
 mod flags;
@@ -26,6 +32,10 @@ use std::io::Write;
 
 use rv_core::RvFile;
 
+pub use database::{
+    into_database, load_database, save_database, to_cache_file, DatabaseError, DatabaseOptions,
+    SaveError,
+};
 pub use error::CacheError;
 pub use store::{backup_path, load, load_file, save, tmp_path, LoadError, LoadSource, Loaded};
 

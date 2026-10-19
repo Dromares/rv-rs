@@ -1,6 +1,6 @@
 [package]
 name = "rv-core"
-description = "Data model for the ROMVault cache tree; settings will follow"
+description = "ROMVault database tree, RepStatus table, settings and the sorted-merge primitives shared by the DAT update and the scanner"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,3 +8,5 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+regex = { version = "1", default-features = false, features = ["std", "unicode-case", "unicode-perl", "perf"] }
+quick-xml = "0.37"

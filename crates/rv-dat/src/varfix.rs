@@ -75,6 +75,26 @@ pub fn clean_chd(n: &str) -> String {
     }
 }
 
+/// `VarFix.CleanFileName(name, '-')` (`VarFix.cs:141-161`): trim leading white space and trailing
+/// dots and spaces, and replace the characters a file name cannot hold.
+pub fn clean_file_name(name: &str) -> String {
+    if name.is_empty() {
+        return String::new();
+    }
+    name.trim_start()
+        .trim_end_matches(['.', ' '])
+        .chars()
+        .map(|c| {
+            if matches!(c, ':' | '*' | '?' | '<' | '>' | '|' | '"' | '\\' | '/') || (c as u32) < 32
+            {
+                '-'
+            } else {
+                c
+            }
+        })
+        .collect()
+}
+
 /// `VarFix.ToLower(string)` (`VarFix.cs:164-172`).
 pub fn to_lower(s: &str) -> String {
     s.to_lowercase()
