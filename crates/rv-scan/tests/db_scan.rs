@@ -44,7 +44,10 @@ impl Tmp {
     }
 
     fn set_mtime(&self, rel: &str, secs: u64) {
-        let f = fs::OpenOptions::new().write(true).open(self.path(rel)).unwrap();
+        let f = fs::OpenOptions::new()
+            .write(true)
+            .open(self.path(rel))
+            .unwrap();
         f.set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(secs))
             .unwrap();
     }
@@ -120,12 +123,16 @@ const ROMS: &str = "RomVault/Console/NES/Roms";
 fn node<'a>(db: &'a Database, path: &str) -> &'a RvFile {
     let mut cur = &db.root;
     for part in path.split('/') {
-        cur = cur.children.iter().find(|c| c.name == part).unwrap_or_else(|| {
-            panic!(
-                "{part} not found in {:?} (path {path})",
-                cur.children.iter().map(|c| &c.name).collect::<Vec<_>>()
-            )
-        });
+        cur = cur
+            .children
+            .iter()
+            .find(|c| c.name == part)
+            .unwrap_or_else(|| {
+                panic!(
+                    "{part} not found in {:?} (path {path})",
+                    cur.children.iter().map(|c| &c.name).collect::<Vec<_>>()
+                )
+            });
     }
     cur
 }
@@ -164,8 +171,15 @@ const B: &[u8] = b"second rom";
 fn a_zip_that_matches_its_dat_is_correct_and_gets_its_hashes() {
     let t = Tmp::new("correct");
     let s = t.settings();
-    let mut db = load(&t, &s, &dat_text("", &[("Alpha", &[("a.nes", A), ("b.nes", B)])]));
-    t.write("RomRoot/Console/NES/Roms/Alpha.zip", &zip(&[("a.nes", A), ("b.nes", B)]));
+    let mut db = load(
+        &t,
+        &s,
+        &dat_text("", &[("Alpha", &[("a.nes", A), ("b.nes", B)])]),
+    );
+    t.write(
+        "RomRoot/Console/NES/Roms/Alpha.zip",
+        &zip(&[("a.nes", A), ("b.nes", B)]),
+    );
     let r = scan(&mut db, &s, ScanLevel::Level2);
     assert_eq!(r.roots_scanned, [ROMS]);
     assert_eq!((r.archives_scanned, r.files_hashed), (1, 0));
@@ -178,7 +192,10 @@ fn a_zip_that_matches_its_dat_is_correct_and_gets_its_hashes() {
     assert_ne!(zip_node.file_mod_time_stamp, i64::MIN);
     let a = &zip_node.children[0];
     let h = hashes(A);
-    assert_eq!((a.name.as_str(), a.got_status, a.rep_status), ("a.nes", GotStatus::GOT, RepStatus::CORRECT));
+    assert_eq!(
+        (a.name.as_str(), a.got_status, a.rep_status),
+        ("a.nes", GotStatus::GOT, RepStatus::CORRECT)
+    );
     assert_eq!(a.size, Some(h.size));
     // The DAT gave size and CRC; the scan filled in what the DAT lacked and verified it.
     assert_eq!(rv_scan::hash::to_hex(a.sha1.as_ref().unwrap()), h.sha1);
@@ -197,7 +214,13 @@ fn a_zip_that_matches_its_dat_is_correct_and_gets_its_hashes() {
     assert_eq!(zip_node.children[0].zip_file_header_position, Some(0));
     assert!(zip_node.is_deep_scanned(&s));
     let counts = node(&db, ROMS).dir_status(true);
-    assert_eq!((counts.get(RepStatus::CORRECT), counts.get(RepStatus::DIR_CORRECT)), (2, 1));
+    assert_eq!(
+        (
+            counts.get(RepStatus::CORRECT),
+            counts.get(RepStatus::DIR_CORRECT)
+        ),
+        (2, 1)
+    );
 }
 
 #[test]
@@ -209,8 +232,14 @@ fn games_without_files_stay_missing_and_unknown_files_are_added_as_unknown() {
         &s,
         &dat_text("", &[("Alpha", &[("a.nes", A)]), ("Beta", &[("b.nes", B)])]),
     );
-    t.write("RomRoot/Console/NES/Roms/Alpha.zip", &zip(&[("a.nes", A), ("extra.txt", b"x")]));
-    t.write("RomRoot/Console/NES/Roms/Stranger.zip", &zip(&[("s.nes", b"zzz")]));
+    t.write(
+        "RomRoot/Console/NES/Roms/Alpha.zip",
+        &zip(&[("a.nes", A), ("extra.txt", b"x")]),
+    );
+    t.write(
+        "RomRoot/Console/NES/Roms/Stranger.zip",
+        &zip(&[("s.nes", b"zzz")]),
+    );
     t.write("RomRoot/Console/NES/Roms/notes.txt", b"hello");
     scan(&mut db, &s, ScanLevel::Level2);
 
@@ -229,15 +258,24 @@ fn games_without_files_stay_missing_and_unknown_files_are_added_as_unknown() {
     let alpha = &roms.children[0];
     assert_eq!(
         statuses(alpha),
-        [("a.nes".into(), RepStatus::CORRECT), ("extra.txt".into(), RepStatus::UNKNOWN)]
+        [
+            ("a.nes".into(), RepStatus::CORRECT),
+            ("extra.txt".into(), RepStatus::UNKNOWN)
+        ]
     );
     assert_eq!(alpha.children[1].dat_status, DatStatus::NOT_IN_DAT);
     assert_eq!(roms.children[1].children[0].rep_status, RepStatus::MISSING);
     let notes = &roms.children[2];
     assert_eq!(notes.file_type, FileType::FILE);
     assert_eq!(notes.size, Some(5));
-    assert!(notes.file_status.has(FileStatus::SIZE_VERIFIED.with(FileStatus::CRC_VERIFIED)));
-    assert_eq!(notes.zip_file_index, Some(0), "a scanned item starts with ScannedFile.Index 0");
+    assert!(notes
+        .file_status
+        .has(FileStatus::SIZE_VERIFIED.with(FileStatus::CRC_VERIFIED)));
+    assert_eq!(
+        notes.zip_file_index,
+        Some(0),
+        "a scanned item starts with ScannedFile.Index 0"
+    );
 }
 
 #[test]
@@ -245,13 +283,23 @@ fn a_rom_with_the_right_name_and_wrong_contents_is_missing_and_the_file_is_unkno
     let t = Tmp::new("wrong");
     let s = t.settings();
     let mut db = load(&t, &s, &dat_text("", &[("Alpha", &[("a.nes", A)])]));
-    t.write("RomRoot/Console/NES/Roms/Alpha.zip", &zip(&[("a.nes", b"not the rom")]));
+    t.write(
+        "RomRoot/Console/NES/Roms/Alpha.zip",
+        &zip(&[("a.nes", b"not the rom")]),
+    );
     scan(&mut db, &s, ScanLevel::Level2);
     let alpha = node(&db, &format!("{ROMS}/Alpha.zip"));
-    assert_eq!(alpha.rep_status, RepStatus::DIR_CORRECT, "the zip itself is the DAT's game");
+    assert_eq!(
+        alpha.rep_status,
+        RepStatus::DIR_CORRECT,
+        "the zip itself is the DAT's game"
+    );
     assert_eq!(
         statuses(alpha),
-        [("a.nes".into(), RepStatus::MISSING), ("a.nes".into(), RepStatus::UNKNOWN)]
+        [
+            ("a.nes".into(), RepStatus::MISSING),
+            ("a.nes".into(), RepStatus::UNKNOWN)
+        ]
     );
 }
 
@@ -302,7 +350,10 @@ fn an_entry_whose_data_does_not_match_its_header_is_corrupt_and_keeps_the_crc_it
         .expect("a corrupt entry");
     assert_eq!(e.rep_status, RepStatus::CORRUPT);
     // The entry has the CRC of the bytes it holds, which is the DAT's, not the header's wrong one.
-    assert_eq!(rv_scan::hash::to_hex(e.crc.as_ref().unwrap()), hashes(data).crc);
+    assert_eq!(
+        rv_scan::hash::to_hex(e.crc.as_ref().unwrap()),
+        hashes(data).crc
+    );
     assert_ne!(rv_scan::hash::to_hex(e.crc.as_ref().unwrap()), wrong.crc);
 }
 
@@ -311,12 +362,19 @@ fn a_file_that_is_not_a_zip_makes_a_corrupt_archive() {
     let t = Tmp::new("notzip");
     let s = t.settings();
     let mut db = load(&t, &s, &dat_text("", &[("Alpha", &[("a.nes", A)])]));
-    t.write("RomRoot/Console/NES/Roms/Alpha.zip", b"this is not a zip file at all");
+    t.write(
+        "RomRoot/Console/NES/Roms/Alpha.zip",
+        b"this is not a zip file at all",
+    );
     let r = scan(&mut db, &s, ScanLevel::Level2);
     let alpha = node(&db, &format!("{ROMS}/Alpha.zip"));
     assert_eq!(alpha.got_status, GotStatus::CORRUPT);
     assert_eq!(alpha.rep_status, RepStatus::DIR_CORRUPT);
-    assert_eq!(alpha.children[0].rep_status, RepStatus::MISSING, "its entries are missing");
+    assert_eq!(
+        alpha.children[0].rep_status,
+        RepStatus::MISSING,
+        "its entries are missing"
+    );
     assert_eq!(r.errors.len(), 1, "{r:?}");
 }
 
@@ -350,15 +408,31 @@ fn rescanning_changes_nothing_and_reads_no_archive() {
     t.write("RomRoot/Console/NES/Roms/Alpha.zip", &zip(&[("a.nes", A)]));
     t.write("RomRoot/Console/NES/Roms/loose.bin", b"loose");
     scan(&mut db, &s, ScanLevel::Level2);
-    let first = rv_cache::to_cache_file(&mut db).unwrap().to_bytes().unwrap();
+    let first = rv_cache::to_cache_file(&mut db)
+        .unwrap()
+        .to_bytes()
+        .unwrap();
     let r = scan(&mut db, &s, ScanLevel::Level2);
-    assert_eq!((r.archives_scanned, r.files_hashed), (0, 0), "nothing changed: {r:?}");
-    let second = rv_cache::to_cache_file(&mut db).unwrap().to_bytes().unwrap();
+    assert_eq!(
+        (r.archives_scanned, r.files_hashed),
+        (0, 0),
+        "nothing changed: {r:?}"
+    );
+    let second = rv_cache::to_cache_file(&mut db)
+        .unwrap()
+        .to_bytes()
+        .unwrap();
     assert_eq!(first, second);
     // A deeper scan looks at everything again and finds the same.
     let r = scan(&mut db, &s, ScanLevel::Level3);
     assert_eq!((r.archives_scanned, r.files_hashed), (1, 1));
-    assert_eq!(rv_cache::to_cache_file(&mut db).unwrap().to_bytes().unwrap(), first);
+    assert_eq!(
+        rv_cache::to_cache_file(&mut db)
+            .unwrap()
+            .to_bytes()
+            .unwrap(),
+        first
+    );
 }
 
 #[test]
@@ -374,7 +448,10 @@ fn a_changed_zip_is_read_again_and_a_deleted_one_goes_missing() {
     t.write("RomRoot/Console/NES/Roms/Beta.zip", &zip(&[("b.nes", B)]));
     scan(&mut db, &s, ScanLevel::Level2);
     // Alpha is replaced by one without its rom; Beta is deleted.
-    t.write("RomRoot/Console/NES/Roms/Alpha.zip", &zip(&[("other.nes", b"o")]));
+    t.write(
+        "RomRoot/Console/NES/Roms/Alpha.zip",
+        &zip(&[("other.nes", b"o")]),
+    );
     t.set_mtime("RomRoot/Console/NES/Roms/Alpha.zip", 1_800_000_000);
     fs::remove_file(t.path("RomRoot/Console/NES/Roms/Beta.zip")).unwrap();
     let r = scan(&mut db, &s, ScanLevel::Level2);
@@ -387,7 +464,10 @@ fn a_changed_zip_is_read_again_and_a_deleted_one_goes_missing() {
     assert_eq!(roms.children[1].file_mod_time_stamp, i64::MIN);
     assert_eq!(
         statuses(&roms.children[0]),
-        [("a.nes".into(), RepStatus::MISSING), ("other.nes".into(), RepStatus::UNKNOWN)]
+        [
+            ("a.nes".into(), RepStatus::MISSING),
+            ("other.nes".into(), RepStatus::UNKNOWN)
+        ]
     );
 }
 
@@ -397,14 +477,20 @@ fn a_file_that_disappears_is_removed_when_nothing_knows_it_and_kept_missing_when
     let s = t.settings();
     let mut db = load(&t, &s, &dat_text("", &[("Alpha", &[("a.nes", A)])]));
     t.write("RomRoot/Console/NES/Roms/Alpha.zip", &zip(&[("a.nes", A)]));
-    t.write("RomRoot/Console/NES/Roms/Stranger.zip", &zip(&[("s", b"s")]));
+    t.write(
+        "RomRoot/Console/NES/Roms/Stranger.zip",
+        &zip(&[("s", b"s")]),
+    );
     scan(&mut db, &s, ScanLevel::Level2);
     assert_eq!(node(&db, ROMS).children.len(), 2);
     fs::remove_file(t.path("RomRoot/Console/NES/Roms/Alpha.zip")).unwrap();
     fs::remove_file(t.path("RomRoot/Console/NES/Roms/Stranger.zip")).unwrap();
     scan(&mut db, &s, ScanLevel::Level2);
     let roms = node(&db, ROMS);
-    assert_eq!(statuses(roms), [("Alpha.zip".into(), RepStatus::DIR_MISSING)]);
+    assert_eq!(
+        statuses(roms),
+        [("Alpha.zip".into(), RepStatus::DIR_MISSING)]
+    );
 }
 
 #[test]
@@ -415,7 +501,10 @@ fn a_missing_directory_marks_everything_in_it_missing() {
     let r = scan(&mut db, &s, ScanLevel::Level2);
     assert_eq!(r.roots_missing, [ROMS]);
     assert!(r.roots_scanned.is_empty());
-    assert_eq!(node(&db, ROMS).children[0].rep_status, RepStatus::DIR_MISSING);
+    assert_eq!(
+        node(&db, ROMS).children[0].rep_status,
+        RepStatus::DIR_MISSING
+    );
 }
 
 // ---- copier headers --------------------------------------------------------------------------------
@@ -439,7 +528,10 @@ fn a_headered_file_matches_a_headerless_dat_through_its_alt_hashes_md5_included(
     let t = Tmp::new("header");
     let s = t.settings();
     let mut db = load(&t, &s, &dat);
-    t.write("RomRoot/Console/NES/Roms/Alpha.zip", &zip(&[("a.nes", &nes(body))]));
+    t.write(
+        "RomRoot/Console/NES/Roms/Alpha.zip",
+        &zip(&[("a.nes", &nes(body))]),
+    );
     scan(&mut db, &s, ScanLevel::Level2);
     let alpha = node(&db, &format!("{ROMS}/Alpha.zip"));
     let a = &alpha.children[0];
@@ -449,7 +541,9 @@ fn a_headered_file_matches_a_headerless_dat_through_its_alt_hashes_md5_included(
     assert_eq!(a.size, Some(h.size + 16));
     assert_eq!(a.alt_size, Some(h.size));
     assert_eq!(rv_scan::hash::to_hex(a.alt_md5.as_ref().unwrap()), h.md5);
-    assert!(a.file_status.has(FileStatus::ALT_MD5_FROM_DAT.with(FileStatus::HEADER_FILE_TYPE_FROM_HEADER)));
+    assert!(a
+        .file_status
+        .has(FileStatus::ALT_MD5_FROM_DAT.with(FileStatus::HEADER_FILE_TYPE_FROM_HEADER)));
     assert_eq!(a.header_type(), HeaderFileType::NES);
 }
 
@@ -474,7 +568,10 @@ fn loose_files_in_a_game_directory_match_by_hash_and_are_not_hashed_twice() {
     let alpha = node(&db, &format!("{ROMS}/Alpha"));
     assert_eq!(
         statuses(alpha),
-        [("a.nes".into(), RepStatus::CORRECT), ("b.nes".into(), RepStatus::UNKNOWN)]
+        [
+            ("a.nes".into(), RepStatus::CORRECT),
+            ("b.nes".into(), RepStatus::UNKNOWN)
+        ]
     );
     assert!(alpha.children[0].is_deep_scanned(&s));
     // Level 1 matches by time stamp and size alone; level 2 only does that for deep-scanned items.
@@ -486,7 +583,10 @@ fn loose_files_in_a_game_directory_match_by_hash_and_are_not_hashed_twice() {
     t.set_mtime("RomRoot/Console/NES/Roms/Alpha/a.nes", 1_800_000_000);
     let r = scan(&mut db, &s, ScanLevel::Level2);
     assert_eq!(r.files_hashed, 1);
-    assert_eq!(node(&db, &format!("{ROMS}/Alpha")).children[0].rep_status, RepStatus::CORRECT);
+    assert_eq!(
+        node(&db, &format!("{ROMS}/Alpha")).children[0].rep_status,
+        RepStatus::CORRECT
+    );
 }
 
 #[test]
@@ -500,12 +600,25 @@ fn a_loose_file_with_the_same_stamp_and_size_but_other_contents_is_not_noticed_b
     let mut bad = A.to_vec();
     bad[0] ^= 0xff;
     fs::write(&p, &bad).unwrap();
-    fs::OpenOptions::new().write(true).open(&p).unwrap().set_modified(stamp).unwrap();
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&p)
+        .unwrap()
+        .set_modified(stamp)
+        .unwrap();
     scan(&mut db, &s, ScanLevel::Level2);
-    assert_eq!(node(&db, &format!("{ROMS}/Alpha")).children[0].rep_status, RepStatus::CORRECT);
+    assert_eq!(
+        node(&db, &format!("{ROMS}/Alpha")).children[0].rep_status,
+        RepStatus::CORRECT
+    );
     scan(&mut db, &s, ScanLevel::Level3);
     let alpha = node(&db, &format!("{ROMS}/Alpha"));
-    assert_eq!(alpha.children[0].rep_status, RepStatus::MISSING, "{:?}", statuses(alpha));
+    assert_eq!(
+        alpha.children[0].rep_status,
+        RepStatus::MISSING,
+        "{:?}",
+        statuses(alpha)
+    );
 }
 
 #[test]
@@ -552,9 +665,18 @@ fn ignore_patterns_label_or_skip_and_stale_temp_files_are_reported_not_deleted()
         .map(|c| (c.name.as_str(), c.rep_status))
         .collect();
     // `ignore:` files are not in the tree at all; the other pattern labels them.
-    assert_eq!(names, [("a.nes", RepStatus::CORRECT), ("readme.NFO", RepStatus::IGNORE)]);
+    assert_eq!(
+        names,
+        [
+            ("a.nes", RepStatus::CORRECT),
+            ("readme.NFO", RepStatus::IGNORE)
+        ]
+    );
     assert!(tmp.exists(), "the scanner only reads");
-    assert!(r.errors.iter().any(|(f, m)| f.ends_with("__RomVault.123.tmp") && m.contains("Stale")));
+    assert!(r
+        .errors
+        .iter()
+        .any(|(f, m)| f.ends_with("__RomVault.123.tmp") && m.contains("Stale")));
 }
 
 #[test]
@@ -630,7 +752,10 @@ fn cancelling_stops_the_scan_between_items_and_leaves_a_consistent_tree() {
     )
     .unwrap();
     assert!(r.cancelled);
-    assert!(r.roots_scanned.is_empty(), "cancelled before the first directory");
+    assert!(
+        r.roots_scanned.is_empty(),
+        "cancelled before the first directory"
+    );
     rv_cache::to_cache_file(&mut db).unwrap();
 }
 
@@ -655,7 +780,9 @@ fn progress_names_the_directory_and_the_archive_being_read() {
     .unwrap();
     let seen = seen.into_inner();
     assert!(seen.iter().any(|e| matches!(e, ProgressEvent::Text(t) if t.starts_with("Scanning Dir : ") && t.ends_with("Console/NES/Roms"))));
-    assert!(seen.iter().any(|e| matches!(e, ProgressEvent::Item(i) if i.ends_with("Alpha.zip"))));
+    assert!(seen
+        .iter()
+        .any(|e| matches!(e, ProgressEvent::Item(i) if i.ends_with("Alpha.zip"))));
 }
 
 #[test]
@@ -674,7 +801,10 @@ fn a_target_that_is_not_in_the_tree_is_an_error_and_selected_scans_the_ticked_ro
         &CancelFlag::new(),
     )
     .unwrap_err();
-    assert_eq!(e, rv_scan::db::ScanError::NoSuchDir("RomVault/Nope".to_owned()));
+    assert_eq!(
+        e,
+        rv_scan::db::ScanError::NoSuchDir("RomVault/Nope".to_owned())
+    );
 
     t.write("RomRoot/Console/NES/Roms/Alpha.zip", &zip(&[("a.nes", A)]));
     // Rows are ticked by default after a DAT update: `Selected` scans RomVault and everything
@@ -688,7 +818,10 @@ fn a_target_that_is_not_in_the_tree_is_an_error_and_selected_scans_the_ticked_ro
     )
     .unwrap();
     assert!(r.roots_scanned.contains(&ROMS.to_owned()), "{r:?}");
-    assert_eq!(node(&db, &format!("{ROMS}/Alpha.zip")).rep_status, RepStatus::DIR_CORRECT);
+    assert_eq!(
+        node(&db, &format!("{ROMS}/Alpha.zip")).rep_status,
+        RepStatus::DIR_CORRECT
+    );
     // Unticking a row takes it out.
     let mut db2 = db.clone();
     let mut cur = &mut db2.root;
@@ -697,6 +830,13 @@ fn a_target_that_is_not_in_the_tree_is_an_error_and_selected_scans_the_ticked_ro
         cur = &mut cur.children[i];
     }
     cur.tree.as_mut().unwrap().checked = rv_core::TreeSelect::UN_SELECTED;
-    let r = scan_files(&mut db2, &s, &ScanRequest::default(), &NoProgress, &CancelFlag::new()).unwrap();
+    let r = scan_files(
+        &mut db2,
+        &s,
+        &ScanRequest::default(),
+        &NoProgress,
+        &CancelFlag::new(),
+    )
+    .unwrap();
     assert!(!r.roots_scanned.contains(&ROMS.to_owned()), "{r:?}");
 }

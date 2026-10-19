@@ -53,7 +53,9 @@ impl Drop for Tmp {
 fn dat_text(games: &[(&str, &[(&str, u64, &str)])]) -> String {
     let mut s = String::from("clrmamepro (\n\tname \"T\"\n\tdescription \"T\"\n)\n");
     for (name, roms) in games {
-        s.push_str(&format!("game (\n\tname \"{name}\"\n\tdescription \"{name}\"\n"));
+        s.push_str(&format!(
+            "game (\n\tname \"{name}\"\n\tdescription \"{name}\"\n"
+        ));
         for (r, size, crc) in *roms {
             s.push_str(&format!("\trom ( name \"{r}\" size {size} crc {crc} )\n"));
         }
@@ -63,7 +65,14 @@ fn dat_text(games: &[(&str, &[(&str, u64, &str)])]) -> String {
 }
 
 fn update(db: &mut Database, s: &Settings) -> UpdateReport {
-    update_dats(db, s, &UpdateOptions::default(), &NoProgress, &CancelFlag::new()).unwrap()
+    update_dats(
+        db,
+        s,
+        &UpdateOptions::default(),
+        &NoProgress,
+        &CancelFlag::new(),
+    )
+    .unwrap()
 }
 
 fn node<'a>(db: &'a Database, path: &str) -> &'a RvFile {
@@ -73,7 +82,12 @@ fn node<'a>(db: &'a Database, path: &str) -> &'a RvFile {
             .children
             .iter()
             .find(|c| c.name == part)
-            .unwrap_or_else(|| panic!("{part} not in {:?} (path {path})", cur.children.iter().map(|c| &c.name).collect::<Vec<_>>()));
+            .unwrap_or_else(|| {
+                panic!(
+                    "{part} not in {:?} (path {path})",
+                    cur.children.iter().map(|c| &c.name).collect::<Vec<_>>()
+                )
+            });
     }
     cur
 }
@@ -104,7 +118,10 @@ fn a_first_update_builds_the_dat_side_of_the_tree() {
         "Console/NES/Roms/nes.dat",
         &dat_text(&[
             ("Zed", &[("z.nes", 16, "0000000f")]),
-            ("Alpha", &[("a.nes", 16, "0000000a"), ("b.nes", 32, "0000000b")]),
+            (
+                "Alpha",
+                &[("a.nes", 16, "0000000a"), ("b.nes", 32, "0000000b")],
+            ),
         ]),
         1_700_000_000,
     );
@@ -131,7 +148,10 @@ fn a_first_update_builds_the_dat_side_of_the_tree() {
         Some("DatRoot/Console/NES/Roms/nes.dat")
     );
     assert_eq!(dat.get(dat_data::SUB_DIR_TYPE), Some("0"));
-    assert_eq!(dat.time_stamp, 621_355_968_000_000_000 + 1_700_000_000 * 10_000_000);
+    assert_eq!(
+        dat.time_stamp,
+        621_355_968_000_000_000 + 1_700_000_000 * 10_000_000
+    );
 
     // Games are zips, sorted, with their DAT; ROMs are missing archive members.
     let names: Vec<&str> = roms.children.iter().map(|c| c.name.as_str()).collect();
@@ -144,10 +164,15 @@ fn a_first_update_builds_the_dat_side_of_the_tree() {
     assert_eq!(alpha.zip_struct, Some(rv_core::ZipStructure::NONE));
     assert_eq!(alpha.got_status, GotStatus::NOT_GOT);
     let a = &alpha.children[0];
-    assert_eq!((a.name.as_str(), a.file_type), ("a.nes", FileType::FILE_ZIP));
+    assert_eq!(
+        (a.name.as_str(), a.file_type),
+        ("a.nes", FileType::FILE_ZIP)
+    );
     assert_eq!(a.size, Some(16));
     assert_eq!(a.crc.as_deref(), Some(&[0, 0, 0, 0x0a][..]));
-    assert!(a.file_status.has(FileStatus::SIZE_FROM_DAT.with(FileStatus::CRC_FROM_DAT)));
+    assert!(a
+        .file_status
+        .has(FileStatus::SIZE_FROM_DAT.with(FileStatus::CRC_FROM_DAT)));
     assert_eq!(a.rep_status, RepStatus::MISSING);
     assert_eq!(a.zip_file_index, None);
     assert_eq!(a.file_mod_time_stamp, i64::MIN);
@@ -169,24 +194,38 @@ fn a_second_update_with_the_same_dats_changes_nothing() {
     let s = t.settings();
     let mut db = fresh();
     update(&mut db, &s);
-    let before = rv_cache::to_cache_file(&mut db).unwrap().to_bytes().unwrap();
+    let before = rv_cache::to_cache_file(&mut db)
+        .unwrap()
+        .to_bytes()
+        .unwrap();
     let r = update(&mut db, &s);
     assert_eq!(r.dats_unchanged, ["DatRoot/Console/NES/Roms/nes.dat"]);
     assert!(r.dats_added.is_empty() && r.dats_removed.is_empty());
-    let after = rv_cache::to_cache_file(&mut db).unwrap().to_bytes().unwrap();
+    let after = rv_cache::to_cache_file(&mut db)
+        .unwrap()
+        .to_bytes()
+        .unwrap();
     assert_eq!(before, after);
 
     // And it survives the cache: written, read, updated again, written again.
     let mut again = rv_cache::into_database(
         rv_cache::CacheFile::from_bytes(&after).unwrap(),
         &s,
-        rv_cache::DatabaseOptions { apply_load_fixups: false },
+        rv_cache::DatabaseOptions {
+            apply_load_fixups: false,
+        },
     )
     .unwrap();
     let r = update(&mut again, &s);
     assert_eq!(r.dats_unchanged.len(), 1);
     assert!(r.dats_added.is_empty() && r.dats_removed.is_empty());
-    assert_eq!(rv_cache::to_cache_file(&mut again).unwrap().to_bytes().unwrap(), after);
+    assert_eq!(
+        rv_cache::to_cache_file(&mut again)
+            .unwrap()
+            .to_bytes()
+            .unwrap(),
+        after
+    );
 }
 
 #[test]
@@ -219,7 +258,10 @@ fn a_changed_dat_is_read_again_and_its_removed_rom_is_gone() {
     let t = Tmp::new("changed");
     t.write_dat(
         "Console/NES/Roms/nes.dat",
-        &dat_text(&[("Alpha", &[("a.nes", 16, "0000000a"), ("b.nes", 32, "0000000b")])]),
+        &dat_text(&[(
+            "Alpha",
+            &[("a.nes", 16, "0000000a"), ("b.nes", 32, "0000000b")],
+        )]),
         1_700_000_000,
     );
     let s = t.settings();
@@ -344,8 +386,16 @@ fn removing_every_dat_removes_every_empty_directory() {
 #[test]
 fn two_dats_with_the_same_name_in_one_directory_want_the_same_auto_directory() {
     let t = Tmp::new("multi");
-    t.write_dat("Console/Both/one.dat", &dat_text(&[("G1", &[("r1", 1, "00000001")])]), 10);
-    t.write_dat("Console/Both/two.dat", &dat_text(&[("G2", &[("r2", 2, "00000002")])]), 11);
+    t.write_dat(
+        "Console/Both/one.dat",
+        &dat_text(&[("G1", &[("r1", 1, "00000001")])]),
+        10,
+    );
+    t.write_dat(
+        "Console/Both/two.dat",
+        &dat_text(&[("G2", &[("r2", 2, "00000002")])]),
+        11,
+    );
     let s = t.settings();
     let mut db = fresh();
     let r = update(&mut db, &s);
@@ -377,11 +427,20 @@ fn dats_with_different_names_each_get_their_own_directory() {
     let both = node(&db, "RomVault/Console/Both");
     let names: Vec<&str> = both.children.iter().map(|c| c.name.as_str()).collect();
     assert_eq!(names, ["First", "Second"]);
-    assert!(both.children.iter().all(|c| c.tree.is_some() && c.game.is_none()));
-    assert_eq!(node(&db, "RomVault/Console/Both/First").children[0].name, "G1.zip");
+    assert!(both
+        .children
+        .iter()
+        .all(|c| c.tree.is_some() && c.game.is_none()));
+    assert_eq!(
+        node(&db, "RomVault/Console/Both/First").children[0].name,
+        "G1.zip"
+    );
     // Each game is claimed by its own DAT.
     let uid = |p: &str| node(&db, p).dat_uid;
-    assert_ne!(uid("RomVault/Console/Both/First/G1.zip"), uid("RomVault/Console/Both/Second/G2.zip"));
+    assert_ne!(
+        uid("RomVault/Console/Both/First/G1.zip"),
+        uid("RomVault/Console/Both/Second/G2.zip")
+    );
     assert_eq!(both.dir_dats.len(), 2);
 }
 
@@ -390,14 +449,26 @@ fn a_dat_that_claims_a_name_another_dat_has_is_refused() {
     let t = Tmp::new("conflict");
     let mut s = t.settings();
     s.dat_rules[0].multi_dat_dir_override = true; // no auto directories: both land in one place
-    t.write_dat("X/one.dat", &dat_text(&[("Same", &[("a", 1, "00000001")])]), 10);
-    t.write_dat("X/two.dat", &dat_text(&[("Same", &[("b", 2, "00000002")])]), 11);
+    t.write_dat(
+        "X/one.dat",
+        &dat_text(&[("Same", &[("a", 1, "00000001")])]),
+        10,
+    );
+    t.write_dat(
+        "X/two.dat",
+        &dat_text(&[("Same", &[("b", 2, "00000002")])]),
+        11,
+    );
     let mut db = fresh();
     let r = update(&mut db, &s);
     assert_eq!(r.dats_added, ["DatRoot/X/one.dat"]);
     assert_eq!(r.dats_failed.len(), 1);
     assert_eq!(r.dats_failed[0].0, "DatRoot/X/two.dat");
-    assert!(r.dats_failed[0].1.contains("Dat Merge conflict"), "{:?}", r.dats_failed);
+    assert!(
+        r.dats_failed[0].1.contains("Dat Merge conflict"),
+        "{:?}",
+        r.dats_failed
+    );
     let x = node(&db, "RomVault/X");
     assert_eq!(x.dir_dats.len(), 1);
     assert_eq!(node(&db, "RomVault/X/Same.zip").children[0].name, "a");
@@ -434,20 +505,35 @@ fn a_file_found_on_disk_before_its_dat_arrives_is_claimed_by_it() {
     }
     t.write_dat(
         "Console/NES/Roms/nes.dat",
-        &dat_text(&[("Alpha", &[("a.nes", 16, "0000000a"), ("b.nes", 8, "0000000b")])]),
+        &dat_text(&[(
+            "Alpha",
+            &[("a.nes", 16, "0000000a"), ("b.nes", 8, "0000000b")],
+        )]),
         5,
     );
     update(&mut db, &s);
     let alpha = node(&db, &format!("{PATH}/Alpha.zip"));
     assert_eq!(alpha.dat_status, DatStatus::IN_DAT_COLLECT);
-    assert_eq!(alpha.got_status, GotStatus::GOT, "the zip on disk is the DAT's game now");
+    assert_eq!(
+        alpha.got_status,
+        GotStatus::GOT,
+        "the zip on disk is the DAT's game now"
+    );
     assert_eq!(alpha.rep_status, RepStatus::DIR_CORRECT);
     assert_eq!(alpha.file_mod_time_stamp, 99);
     let a = &alpha.children[0];
-    assert_eq!((a.dat_status, a.rep_status), (DatStatus::IN_DAT_COLLECT, RepStatus::CORRECT));
-    assert!(a.file_status.has(FileStatus::CRC_FROM_DAT.with(FileStatus::CRC_VERIFIED)));
+    assert_eq!(
+        (a.dat_status, a.rep_status),
+        (DatStatus::IN_DAT_COLLECT, RepStatus::CORRECT)
+    );
+    assert!(a
+        .file_status
+        .has(FileStatus::CRC_FROM_DAT.with(FileStatus::CRC_VERIFIED)));
     let b = &alpha.children[1];
-    assert_eq!((b.name.as_str(), b.rep_status), ("b.nes", RepStatus::MISSING));
+    assert_eq!(
+        (b.name.as_str(), b.rep_status),
+        ("b.nes", RepStatus::MISSING)
+    );
 }
 
 #[test]
@@ -461,17 +547,27 @@ fn tree_rows_keep_the_users_check_boxes_when_a_dat_is_replaced() {
     let s = t.settings();
     let mut db = fresh();
     update(&mut db, &s);
-    node_mut(&mut db, "RomVault/Console/NES").tree.as_mut().unwrap().checked = TreeSelect::LOCKED;
+    node_mut(&mut db, "RomVault/Console/NES")
+        .tree
+        .as_mut()
+        .unwrap()
+        .checked = TreeSelect::LOCKED;
     node_mut(&mut db, PATH).tree.as_mut().unwrap().expanded = false;
     // The DAT changes: its directory loses its rows and gets new ones in the same update, and
     // the check boxes come back (`DatTreeStatusStore`).
     t.write_dat(
         "Console/NES/Roms/nes.dat",
-        &dat_text(&[("Alpha", &[("a.nes", 16, "0000000a")]), ("Beta", &[("b.nes", 1, "00000001")])]),
+        &dat_text(&[
+            ("Alpha", &[("a.nes", 16, "0000000a")]),
+            ("Beta", &[("b.nes", 1, "00000001")]),
+        ]),
         2,
     );
     update(&mut db, &s);
-    assert_eq!(node(&db, "RomVault/Console/NES").tree.unwrap().checked, TreeSelect::LOCKED);
+    assert_eq!(
+        node(&db, "RomVault/Console/NES").tree.unwrap().checked,
+        TreeSelect::LOCKED
+    );
     assert!(!node(&db, PATH).tree.unwrap().expanded);
     // A DAT that goes away takes the rows with it, and a different one starts with fresh rows.
     fs::remove_file(&dat).unwrap();
@@ -485,14 +581,22 @@ fn tree_rows_keep_the_users_check_boxes_when_a_dat_is_replaced() {
 fn a_dat_that_is_not_a_dat_is_reported_and_the_others_still_load() {
     let t = Tmp::new("bad");
     t.write_dat("A/bad.dat", "this is not a DAT\n", 1);
-    t.write_dat("B/good.dat", &dat_text(&[("G", &[("r", 1, "00000001")])]), 1);
+    t.write_dat(
+        "B/good.dat",
+        &dat_text(&[("G", &[("r", 1, "00000001")])]),
+        1,
+    );
     let s = t.settings();
     let mut db = fresh();
     let r = update(&mut db, &s);
     assert_eq!(r.dats_added, ["DatRoot/B/good.dat"]);
     assert_eq!(r.dats_failed.len(), 1);
     assert_eq!(r.dats_failed[0].0, "DatRoot/A/bad.dat");
-    assert!(r.messages.iter().any(|m| m.contains("Invalid DAT File")), "{:?}", r.messages);
+    assert!(
+        r.messages.iter().any(|m| m.contains("Invalid DAT File")),
+        "{:?}",
+        r.messages
+    );
     // Its directory was made but holds nothing; the next update removes it, tries the DAT
     // again, and makes the directory again.
     let a = node(&db, "RomVault/A");
@@ -516,9 +620,18 @@ fn a_missing_dat_root_is_an_error() {
     let t = Tmp::new("noroot");
     let s = t.settings();
     let mut db = fresh();
-    let e = update_dats(&mut db, &s, &UpdateOptions::default(), &NoProgress, &CancelFlag::new())
-        .unwrap_err();
-    assert!(matches!(e, UpdateError::Import(ImportError::PathNotFound(_))), "{e}");
+    let e = update_dats(
+        &mut db,
+        &s,
+        &UpdateOptions::default(),
+        &NoProgress,
+        &CancelFlag::new(),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(e, UpdateError::Import(ImportError::PathNotFound(_))),
+        "{e}"
+    );
 }
 
 #[test]
@@ -556,7 +669,10 @@ fn cancelling_between_dats_keeps_the_ones_already_merged() {
     // is not started.
     assert_eq!(r.dats_added, ["DatRoot/A/a.dat"]);
     let b = node(&db, "RomVault/B");
-    assert!(b.children.is_empty() && b.dir_dats.is_empty(), "B was not started");
+    assert!(
+        b.children.is_empty() && b.dir_dats.is_empty(),
+        "B was not started"
+    );
     rv_cache::to_cache_file(&mut db).unwrap();
 }
 
@@ -580,7 +696,11 @@ fn invalidating_makes_unchanged_dats_load_again() {
 #[test]
 fn rules_per_directory_change_how_a_dat_is_loaded() {
     let t = Tmp::new("rules");
-    t.write_dat("Console/NES/Roms/nes.dat", &dat_text(&[("G", &[("r", 1, "00000001")])]), 1);
+    t.write_dat(
+        "Console/NES/Roms/nes.dat",
+        &dat_text(&[("G", &[("r", 1, "00000001")])]),
+        1,
+    );
     let mut s = t.settings();
     let mut sub = s.dat_rules[0].clone();
     sub.dir_key = "RomVault/Console/NES".to_owned();
@@ -628,10 +748,32 @@ fn dat_compare_is_name_then_time_then_four_flags_then_sub_dir_type() {
     let f = DatFlags::default();
     let base = rv_dat("DatRoot/a.dat", 5, f, Some("0"));
     let same = disk_dat("datroot\\A.DAT", 5, f, RemoveSubType::KeepAllSubDirs);
-    assert_eq!(dat_compare(&base, &same), Equal, "case and separator do not count");
-    assert_eq!(dat_compare(&base, &disk_dat("DatRoot/b.dat", 5, f, RemoveSubType::KeepAllSubDirs)), Less);
-    assert_eq!(dat_compare(&base, &disk_dat("DatRoot/a.dat", 6, f, RemoveSubType::KeepAllSubDirs)), Less);
-    assert_eq!(dat_compare(&base, &disk_dat("DatRoot/a.dat", 4, f, RemoveSubType::KeepAllSubDirs)), Greater);
+    assert_eq!(
+        dat_compare(&base, &same),
+        Equal,
+        "case and separator do not count"
+    );
+    assert_eq!(
+        dat_compare(
+            &base,
+            &disk_dat("DatRoot/b.dat", 5, f, RemoveSubType::KeepAllSubDirs)
+        ),
+        Less
+    );
+    assert_eq!(
+        dat_compare(
+            &base,
+            &disk_dat("DatRoot/a.dat", 6, f, RemoveSubType::KeepAllSubDirs)
+        ),
+        Less
+    );
+    assert_eq!(
+        dat_compare(
+            &base,
+            &disk_dat("DatRoot/a.dat", 4, f, RemoveSubType::KeepAllSubDirs)
+        ),
+        Greater
+    );
     for flag in [
         DatFlags::MULTI_DATS_IN_DIRECTORY,
         DatFlags::MULTI_DAT_OVERRIDE,
@@ -639,7 +781,10 @@ fn dat_compare_is_name_then_time_then_four_flags_then_sub_dir_type() {
         DatFlags::SINGLE_ARCHIVE,
     ] {
         assert_eq!(
-            dat_compare(&base, &disk_dat("DatRoot/a.dat", 5, flag, RemoveSubType::KeepAllSubDirs)),
+            dat_compare(
+                &base,
+                &disk_dat("DatRoot/a.dat", 5, flag, RemoveSubType::KeepAllSubDirs)
+            ),
             Less,
             "{flag:?}"
         );
@@ -647,13 +792,19 @@ fn dat_compare_is_name_then_time_then_four_flags_then_sub_dir_type() {
     // The flags that do not count: UseIdForName and AutoAddedDirectory.
     for flag in [DatFlags::USE_ID_FOR_NAME, DatFlags::AUTO_ADDED_DIRECTORY] {
         assert_eq!(
-            dat_compare(&base, &disk_dat("DatRoot/a.dat", 5, flag, RemoveSubType::KeepAllSubDirs)),
+            dat_compare(
+                &base,
+                &disk_dat("DatRoot/a.dat", 5, flag, RemoveSubType::KeepAllSubDirs)
+            ),
             Equal,
             "{flag:?}"
         );
     }
     assert_eq!(
-        dat_compare(&base, &disk_dat("DatRoot/a.dat", 5, f, RemoveSubType::RemoveAllSubDirs)),
+        dat_compare(
+            &base,
+            &disk_dat("DatRoot/a.dat", 5, f, RemoveSubType::RemoveAllSubDirs)
+        ),
         Less
     );
     // No SubDirType stored means KeepAllSubDirs.
@@ -683,7 +834,10 @@ fn db_file(name: &str, size: Option<u64>, crc: Option<u8>) -> RvFile {
 fn dat_merge_compare_names_types_and_hashes() {
     let db = db_file("Rom.bin", Some(10), Some(1));
     let m = |db: &RvFile, t: &DatNode, case| dat_merge_compare(db, t, case);
-    assert_eq!(m(&db, &dat_file("Rom.bin", Some(10), Some(1)), 0), Some(false));
+    assert_eq!(
+        m(&db, &dat_file("Rom.bin", Some(10), Some(1)), 0),
+        Some(false)
+    );
     // The name: exact in pass 0. In pass 1 a loose file is case-insensitive, but the names
     // inside an archive stay case-sensitive (TorrentZip order has a case tie-break).
     assert_eq!(m(&db, &dat_file("ROM.BIN", Some(10), Some(1)), 0), None);
@@ -711,16 +865,25 @@ fn dat_merge_compare_names_types_and_hashes() {
     // A locked file matches by name alone.
     let mut locked = db_file("Rom.bin", Some(99), Some(9));
     locked.got_status = GotStatus::FILE_LOCKED;
-    assert_eq!(m(&locked, &dat_file("Rom.bin", Some(10), Some(1)), 0), Some(false));
+    assert_eq!(
+        m(&locked, &dat_file("Rom.bin", Some(10), Some(1)), 0),
+        Some(false)
+    );
 }
 
 #[test]
 fn dat_merge_compare_zero_length_dates_and_required_headers() {
     // A zero-size DAT file with no hashes matches a zero-size file.
     let empty = db_file("e", Some(0), Some(0));
-    assert_eq!(dat_merge_compare(&empty, &dat_file("e", Some(0), None), 0), Some(false));
+    assert_eq!(
+        dat_merge_compare(&empty, &dat_file("e", Some(0), None), 0),
+        Some(false)
+    );
     let nonempty = db_file("e", Some(5), Some(0));
-    assert_eq!(dat_merge_compare(&nonempty, &dat_file("e", Some(0), None), 0), None);
+    assert_eq!(
+        dat_merge_compare(&nonempty, &dat_file("e", Some(0), None), 0),
+        None
+    );
 
     // A DAT date must equal the item's time stamp.
     let mut dated = db_file("d", Some(1), Some(1));
@@ -778,9 +941,11 @@ fn directories_and_archives_match_on_name_and_type_alone() {
     z.dat_status = DatStatus::NOT_IN_DAT;
     let mut d = crate::DatDir::new("game.ZIP", FileType::ZIP);
     d.game = Some(Box::default());
-    assert_eq!(dat_merge_compare(&z, &DatNode::Dir(d.clone()), 1), Some(false));
+    assert_eq!(
+        dat_merge_compare(&z, &DatNode::Dir(d.clone()), 1),
+        Some(false)
+    );
     assert_eq!(dat_merge_compare(&z, &DatNode::Dir(d.clone()), 0), None);
     d.base.file_type = FileType::DIR;
     assert_eq!(dat_merge_compare(&z, &DatNode::Dir(d), 1), None);
 }
-

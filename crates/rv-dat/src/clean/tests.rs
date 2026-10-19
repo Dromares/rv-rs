@@ -109,9 +109,7 @@ fn step1_names_get_forward_slashes_and_lose_forbidden_characters() {
 fn step2_filters_keep_roms_or_disks() {
     let mut disk = DatFile::new("d");
     disk.is_disk = true;
-    let build = || {
-        root(vec![game("g", vec![rom("r", 1, 1), disk.clone()])])
-    };
+    let build = || root(vec![game("g", vec![rom("r", 1, 1), disk.clone()])]);
     let mut r = build();
     remove_chd(&mut r).unwrap();
     assert_eq!(names(dir(&r, "g")), ["r"]);
@@ -135,7 +133,10 @@ fn step3_nodump_roms_are_dropped_inside_games_and_nested_dirs() {
     nd.status = "nodump".into();
     let mut sub = DatDir::new("sub", FileType::UNSET);
     sub.child_add(game("g2", vec![nd.clone(), rom("ok", 2, 2)]));
-    let mut r = root(vec![game("g1", vec![nd, rom("keep", 1, 1)]), DatNode::Dir(sub)]);
+    let mut r = root(vec![
+        game("g1", vec![nd, rom("keep", 1, 1)]),
+        DatNode::Dir(sub),
+    ]);
     remove_no_dumps(&mut r);
     assert_eq!(names(dir(&r, "g1")), ["keep"]);
     assert_eq!(names(dir(dir(&r, "sub"), "g2")), ["ok"]);
@@ -180,7 +181,10 @@ fn step5_category_single_ranked_or_none() {
         _ => unreachable!(),
     };
     assert_eq!(find_category(&none, &order), None);
-    let mut r = root(vec![game_with("g", cats(&["Racing"]), vec![rom("r", 1, 1)]), game("h", vec![])]);
+    let mut r = root(vec![
+        game_with("g", cats(&["Racing"]), vec![rom("r", 1, 1)]),
+        game("h", vec![]),
+    ]);
     add_category(&mut r, &order);
     assert_eq!(names(&r), ["Racing/g", "h"]);
 }
@@ -207,7 +211,11 @@ fn step7_status_mia_merge_prefix_and_nodump() {
     set_status(&mut r);
     let g = dir(&r, "g");
     assert_eq!(file(g, "mia").mia_status, MiaStatus::MIA_FROM_DAT);
-    assert_eq!(file(g, "mia0").mia_status, MiaStatus::NONE, "size 0 is not MIA");
+    assert_eq!(
+        file(g, "mia0").mia_status,
+        MiaStatus::NONE,
+        "size 0 is not MIA"
+    );
     assert_eq!(
         file(g, "mia_nosize").mia_status,
         MiaStatus::MIA_FROM_DAT,
@@ -227,8 +235,14 @@ fn step8_deduped_roms_are_merged() {
     d.status = "Deduped".into();
     let mut r = root(vec![game("g", vec![d, rom("n", 1, 2)])]);
     check_de_duped(&mut r);
-    assert_eq!(file(dir(&r, "g"), "d").base.dat_status, DatStatus::IN_DAT_MERGED);
-    assert_eq!(file(dir(&r, "g"), "n").base.dat_status, DatStatus::IN_DAT_COLLECT);
+    assert_eq!(
+        file(dir(&r, "g"), "d").base.dat_status,
+        DatStatus::IN_DAT_MERGED
+    );
+    assert_eq!(
+        file(dir(&r, "g"), "n").base.dat_status,
+        DatStatus::IN_DAT_COLLECT
+    );
 }
 
 // ---- step 9 ----------------------------------------------------------------------------------
@@ -247,8 +261,14 @@ fn step9_compression_method_table() {
     assert_eq!(m(&r, "unzip"), (FileType::DIR, ZipStructure::NONE));
     assert_eq!(m(&r, "File"), (FileType::DIR, ZipStructure::NONE));
     assert_eq!(m(&r, "fileonly"), (FileType::DIR, ZipStructure::NONE));
-    assert_eq!(m(&r, "7z"), (FileType::SEVEN_ZIP, ZipStructure::SEVEN_ZIP_SLZMA));
-    assert_eq!(m(&r, "7ZIP"), (FileType::SEVEN_ZIP, ZipStructure::SEVEN_ZIP_SLZMA));
+    assert_eq!(
+        m(&r, "7z"),
+        (FileType::SEVEN_ZIP, ZipStructure::SEVEN_ZIP_SLZMA)
+    );
+    assert_eq!(
+        m(&r, "7ZIP"),
+        (FileType::SEVEN_ZIP, ZipStructure::SEVEN_ZIP_SLZMA)
+    );
     assert_eq!(m(&r, "zip"), (FileType::ZIP, ZipStructure::ZIP_TRRNT));
     assert_eq!(m(&r, "bogus"), (FileType::ZIP, ZipStructure::ZIP_TRRNT));
     r.compression_override_dat = true;
@@ -256,10 +276,16 @@ fn step9_compression_method_table() {
     r.compression_override_dat = false;
     r.compression = FileType::SEVEN_ZIP;
     r.compression_sub = ZipStructure::SEVEN_ZIP_NZSTD;
-    assert_eq!(m(&r, ""), (FileType::SEVEN_ZIP, ZipStructure::SEVEN_ZIP_NZSTD));
+    assert_eq!(
+        m(&r, ""),
+        (FileType::SEVEN_ZIP, ZipStructure::SEVEN_ZIP_NZSTD)
+    );
     // FileOnly in the rule ignores the DAT; the pipeline then forces Dir/None.
     r.compression = FileType::FILE_ONLY;
-    assert_eq!(m(&r, "zip"), (FileType::FILE, ZipStructure::SEVEN_ZIP_NZSTD));
+    assert_eq!(
+        m(&r, "zip"),
+        (FileType::FILE, ZipStructure::SEVEN_ZIP_NZSTD)
+    );
 }
 
 // ---- step 10 ---------------------------------------------------------------------------------
@@ -279,7 +305,11 @@ fn step10_flatten_lifts_games_and_names_them_by_their_directories() {
     inner.child_add(game("g", vec![rom("r", 1, 1)]));
     let mut outer = DatDir::new("Top", FileType::UNSET);
     outer.child_add(DatNode::Dir(inner));
-    let mut r = root(vec![DatNode::Dir(outer), DatNode::File(rom("loose", 1, 1)), game("h", vec![])]);
+    let mut r = root(vec![
+        DatNode::Dir(outer),
+        DatNode::File(rom("loose", 1, 1)),
+        game("h", vec![]),
+    ]);
     directory_flatten(&mut r);
     assert_eq!(names(&r), ["Top/Sub/g", "h"], "loose files are dropped");
 }
@@ -310,10 +340,16 @@ fn step10_single_level_keep_all_adds_the_set_name_to_each_rom() {
 #[test]
 fn step10_single_level_remove_all_flattens_and_conflicts_collide() {
     let h = single_level(RemoveSubType::RemoveAllSubDirs, false, two_games());
-    assert_eq!(names(dir(&h.base_dir, "Pack")), ["one.rom", "one.rom", "two.rom"]);
+    assert_eq!(
+        names(dir(&h.base_dir, "Pack")),
+        ["one.rom", "one.rom", "two.rom"]
+    );
     // With a conflict check the same input falls back to keeping the sets.
     let h = single_level(RemoveSubType::RemoveAllIfNoConflicts, false, two_games());
-    assert_eq!(names(dir(&h.base_dir, "Pack")), ["A/one.rom", "B/one.rom", "B/two.rom"]);
+    assert_eq!(
+        names(dir(&h.base_dir, "Pack")),
+        ["A/one.rom", "B/one.rom", "B/two.rom"]
+    );
     let ok = vec![
         game("A", vec![rom("one.rom", 1, 1)]),
         game("B", vec![rom("two.rom", 3, 3)]),
@@ -325,13 +361,19 @@ fn step10_single_level_remove_all_flattens_and_conflicts_collide() {
 #[test]
 fn step10_single_level_single_file_and_name_match_rules() {
     let h = single_level(RemoveSubType::RemoveSubIfSingleFiles, false, two_games());
-    assert_eq!(names(dir(&h.base_dir, "Pack")), ["one.rom", "B/one.rom", "B/two.rom"]);
+    assert_eq!(
+        names(dir(&h.base_dir, "Pack")),
+        ["one.rom", "B/one.rom", "B/two.rom"]
+    );
     let games = vec![
         game("same", vec![rom("same.rom", 1, 1)]),
         game("other", vec![rom("different.rom", 2, 2)]),
     ];
     let h = single_level(RemoveSubType::RemoveSubIfNameMatches, false, games);
-    assert_eq!(names(dir(&h.base_dir, "Pack")), ["same.rom", "other/different.rom"]);
+    assert_eq!(
+        names(dir(&h.base_dir, "Pack")),
+        ["same.rom", "other/different.rom"]
+    );
 }
 
 #[test]
@@ -352,7 +394,14 @@ fn step10_single_level_puts_the_category_into_the_rom_name() {
         ..DatGame::default()
     };
     let mut h = header_with(vec![game_with("Pz", cat, vec![rom("p.rom", 1, 1)])]);
-    make_dat_single_level(&mut h, true, RemoveSubType::RemoveAllSubDirs, false, true, &[]);
+    make_dat_single_level(
+        &mut h,
+        true,
+        RemoveSubType::RemoveAllSubDirs,
+        false,
+        true,
+        &[],
+    );
     // `use_description` names the wrapper after the description.
     assert_eq!(names(&h.base_dir), ["Pack Desc"]);
     assert_eq!(names(dir(&h.base_dir, "Pack Desc")), ["Puzzle/p.rom"]);
@@ -367,7 +416,10 @@ fn typed(r: &mut DatDir, ft: FileType, zs: ZipStructure) {
 #[test]
 fn step11_types_flags_and_sort_order() {
     let mut r = root(vec![
-        game("b game", vec![rom("b", 1, 1), rom("A", 2, 2), rom("a", 3, 3)]),
+        game(
+            "b game",
+            vec![rom("b", 1, 1), rom("A", 2, 2), rom("a", 3, 3)],
+        ),
         game("A game", vec![]),
     ]);
     typed(&mut r, FileType::ZIP, ZipStructure::ZIP_TRRNT);
@@ -376,7 +428,11 @@ fn step11_types_flags_and_sort_order() {
     assert_eq!(names(&r), ["A game", "b game"]);
     let g = dir(&r, "b game");
     assert_eq!(g.base.file_type, FileType::ZIP);
-    assert_eq!(g.dat_struct, 0x80 | ZipStructure::ZIP_TRRNT.0, "fix flag in bit 7");
+    assert_eq!(
+        g.dat_struct,
+        0x80 | ZipStructure::ZIP_TRRNT.0,
+        "fix flag in bit 7"
+    );
     // Inside a zip: TorrentZip order, case-folded first, then ordinal.
     assert_eq!(names(g), ["A", "a", "b"]);
     assert!(g
@@ -391,7 +447,11 @@ fn step11_dir_rule_makes_files_and_a_game_keeps_the_type_its_dat_gave_it() {
     typed(&mut r, FileType::DIR, ZipStructure::NONE);
     assert_eq!(dir(&r, "g").base.file_type, FileType::DIR);
     assert_eq!(file(dir(&r, "g"), "x").base.file_type, FileType::FILE);
-    assert_eq!(dir(&r, "g").dat_struct, 0, "no archive structure for a directory");
+    assert_eq!(
+        dir(&r, "g").dat_struct,
+        0,
+        "no archive structure for a directory"
+    );
 
     let mut pre = DatDir::new("sevenz", FileType::SEVEN_ZIP);
     pre.game = Some(Box::default());
@@ -414,7 +474,10 @@ fn step11_a_tdc_zip_whose_files_all_have_the_trrntzip_date_is_a_trrntzip() {
     let mut r = root(vec![game("all", vec![dated(Some(563_657_728))])]);
     typed(&mut r, FileType::ZIP, ZipStructure::ZIP_TDC);
     assert_eq!(dir(&r, "all").dat_struct & 0x7f, ZipStructure::ZIP_TRRNT.0);
-    let mut r = root(vec![game("some", vec![dated(Some(563_657_728)), dated(None)])]);
+    let mut r = root(vec![game(
+        "some",
+        vec![dated(Some(563_657_728)), dated(None)],
+    )]);
     typed(&mut r, FileType::ZIP, ZipStructure::ZIP_TDC);
     assert_eq!(dir(&r, "some").dat_struct & 0x7f, ZipStructure::ZIP_TDC.0);
 }
@@ -430,7 +493,12 @@ fn step12_empty_directory_entries_go_unless_the_zip_keeps_dates() {
     let make = |zs| {
         let mut r = root(vec![game(
             "g",
-            vec![rom("d/", 0, 0), rom("d/f", 1, 1), rom("e/", 0, 0), rom("lonely/", 0, 0)],
+            vec![
+                rom("d/", 0, 0),
+                rom("d/f", 1, 1),
+                rom("e/", 0, 0),
+                rom("lonely/", 0, 0),
+            ],
         )]);
         typed(&mut r, FileType::ZIP, zs);
         remove_un_needed_directories(&mut r).unwrap();
@@ -450,7 +518,10 @@ fn step13_dates_survive_only_in_tdc_dtd_dtz_zips() {
         f.base.date_modified = Some(5);
         f
     };
-    let mut r = root(vec![game("plain", vec![dated("a")]), game("tdc", vec![dated("b")])]);
+    let mut r = root(vec![
+        game("plain", vec![dated("a")]),
+        game("tdc", vec![dated("b")]),
+    ]);
     typed(&mut r, FileType::ZIP, ZipStructure::ZIP_TRRNT);
     if let DatNode::Dir(d) = &mut r.children[1] {
         d.dat_struct = ZipStructure::ZIP_TDC.0;
@@ -467,7 +538,11 @@ fn step14_a_disk_in_an_archive_moves_next_to_it_as_a_loose_file() {
     let mut r = root(vec![game("G", vec![rom("r.bin", 1, 1), disk])]);
     typed(&mut r, FileType::ZIP, ZipStructure::ZIP_TRRNT);
     move_up_chds(&mut r);
-    assert_eq!(names(&r), ["G", "G"], "the archive and a directory of the same name");
+    assert_eq!(
+        names(&r),
+        ["G", "G"],
+        "the archive and a directory of the same name"
+    );
     let archive = r.children.iter().find_map(|c| match c {
         DatNode::Dir(d) if d.base.file_type == FileType::ZIP => Some(d),
         _ => None,
@@ -478,7 +553,10 @@ fn step14_a_disk_in_an_archive_moves_next_to_it_as_a_loose_file() {
         _ => None,
     });
     let folder = folder.unwrap();
-    assert!(folder.game.is_some(), "the folder keeps the game information");
+    assert!(
+        folder.game.is_some(),
+        "the folder keeps the game information"
+    );
     assert_eq!(file(folder, "img").base.file_type, FileType::FILE);
 }
 
@@ -494,13 +572,21 @@ fn step15_slashes_in_names_become_directories_except_inside_archives() {
     assert_eq!(names(&r), ["Series", "Solo"]);
     let series = dir(&r, "Series");
     assert_eq!(names(series), ["One", "Two"]);
-    assert_eq!(names(dir(series, "Two")), ["y"], "files expand in a directory game");
+    assert_eq!(
+        names(dir(series, "Two")),
+        ["y"],
+        "files expand in a directory game"
+    );
     assert_eq!(names(dir(dir(series, "Two"), "y")), ["z"]);
 
     let mut r = root(vec![game("Series/One", vec![rom("y/z", 2, 2)])]);
     typed(&mut r, FileType::ZIP, ZipStructure::ZIP_TRRNT);
     directory_expand(&mut r);
-    assert_eq!(names(dir(dir(&r, "Series"), "One")), ["y/z"], "an archive keeps its entry names");
+    assert_eq!(
+        names(dir(dir(&r, "Series"), "One")),
+        ["y/z"],
+        "an archive keeps its entry names"
+    );
 }
 
 #[test]
@@ -509,7 +595,10 @@ fn steps16_and_17_trimmed_names_blank_names_and_duplicates() {
         game("  Spaced ", vec![rom(" lead. ", 1, 1)]),
         game("dots..", vec![]),
         game("  ", vec![]),
-        game("Same", vec![rom("a.rom", 1, 1), rom("A.ROM", 2, 2), rom("a.rom", 3, 3)]),
+        game(
+            "Same",
+            vec![rom("a.rom", 1, 1), rom("A.ROM", 2, 2), rom("a.rom", 3, 3)],
+        ),
         game("same", vec![]),
         game("SAME", vec![]),
     ]);
@@ -539,7 +628,11 @@ fn steps16_and_17_trimmed_names_blank_names_and_duplicates() {
 fn step18_games_without_roms_are_dropped() {
     let mut sub = DatDir::new("dir", FileType::UNSET);
     sub.child_add(game("empty", vec![]));
-    let mut r = root(vec![game("full", vec![rom("r", 1, 1)]), game("empty", vec![]), DatNode::Dir(sub)]);
+    let mut r = root(vec![
+        game("full", vec![rom("r", 1, 1)]),
+        game("empty", vec![]),
+        DatNode::Dir(sub),
+    ]);
     remove_empty_directories(&mut r);
     assert_eq!(names(&r), ["full", "dir"]);
     assert!(dir(&r, "dir").children.is_empty());
@@ -550,7 +643,10 @@ fn set_ext_adds_archive_and_chd_extensions_and_resorts() {
     let mut disk = DatFile::new("disk");
     disk.is_disk = true;
     disk.merge = "parentdisk".into();
-    let mut r = root(vec![game("b", vec![rom("x", 1, 1), disk]), game("a", vec![])]);
+    let mut r = root(vec![
+        game("b", vec![rom("x", 1, 1), disk]),
+        game("a", vec![]),
+    ]);
     typed(&mut r, FileType::SEVEN_ZIP, ZipStructure::SEVEN_ZIP_SLZMA);
     set_ext(&mut r, HeaderFileType::NES);
     assert_eq!(names(&r), ["a.7z", "b.7z"]);
@@ -575,8 +671,14 @@ fn clear_description_blanks_a_description_that_repeats_the_name() {
     };
     let mut r = root(vec![g("Game.zip", "Game"), g("Other.zip", "Other (long)")]);
     clear_description(&mut r);
-    assert_eq!(dir(&r, "Game.zip").game.as_ref().unwrap().description, "\u{a4}");
-    assert_eq!(dir(&r, "Other.zip").game.as_ref().unwrap().description, "Other (long)");
+    assert_eq!(
+        dir(&r, "Game.zip").game.as_ref().unwrap().description,
+        "\u{a4}"
+    );
+    assert_eq!(
+        dir(&r, "Other.zip").game.as_ref().unwrap().description,
+        "Other (long)"
+    );
 }
 
 // ---- step 6 ----------------------------------------------------------------------------------
@@ -597,7 +699,11 @@ fn family() -> DatDir {
         clone_game(
             "clone",
             "parent",
-            vec![rom("b.rom", 10, 0xb105), rom("p.rom", 20, 0x0102), rom("c.rom", 30, 0x0c0c)],
+            vec![
+                rom("b.rom", 10, 0xb105),
+                rom("p.rom", 20, 0x0102),
+                rom("c.rom", 30, 0x0c0c),
+            ],
         ),
     ])
 }
@@ -668,7 +774,11 @@ fn merge_set_names_roms_after_the_game_for_mame_xml() {
     let mut r = family();
     make_merge_set(&mut r, true).unwrap();
     let parent = dir(&r, "parent");
-    assert!(names(parent).contains(&"clone/c.rom"), "{:?}", names(parent));
+    assert!(
+        names(parent).contains(&"clone/c.rom"),
+        "{:?}",
+        names(parent)
+    );
 }
 
 #[test]
@@ -682,7 +792,10 @@ fn split_set_marks_parent_roms_in_the_clone_as_merged() {
         assert_eq!(file(c, n).merge, "(Auto Merged)");
     }
     assert_eq!(file(c, "c.rom").base.dat_status, DatStatus::IN_DAT_COLLECT);
-    assert_eq!(file(dir(&r, "parent"), "b.rom").base.dat_status, DatStatus::IN_DAT_MERGED);
+    assert_eq!(
+        file(dir(&r, "parent"), "b.rom").base.dat_status,
+        DatStatus::IN_DAT_MERGED
+    );
 }
 
 #[test]
@@ -714,7 +827,12 @@ fn non_merge_set_copies_device_roms_once() {
     assert_eq!(names(dir(&r, "machine")), ["dev.rom"]);
     assert_eq!(names(dir(&r, "machine2")), ["own.rom", "dev.rom"]);
     remove_device_ref(&mut r);
-    assert!(dir(&r, "machine").game.as_ref().unwrap().device_ref.is_empty());
+    assert!(dir(&r, "machine")
+        .game
+        .as_ref()
+        .unwrap()
+        .device_ref
+        .is_empty());
 }
 
 #[test]
@@ -738,13 +856,21 @@ fn remove_dupes_prefers_plain_names_and_keeps_different_content() {
 
     // Without `test_name` (MAME XML) the same content under another name is a duplicate when one
     // of the names has a `/`: that one loses.
-    let mut r = root(vec![game("g", vec![rom("x/a.rom", 1, 0xAA), rom("a.rom", 1, 0xAA)])]);
+    let mut r = root(vec![game(
+        "g",
+        vec![rom("x/a.rom", 1, 0xAA), rom("a.rom", 1, 0xAA)],
+    )]);
     remove_dupes(&mut r, false, false).unwrap();
     assert_eq!(names(dir(&r, "g")), ["a.rom"]);
     // Two plain names are left alone, unless the second names the first as its merge name.
     let mut renamed = rom("new.rom", 1, 0xAA);
     renamed.merge = "old.rom".into();
-    let mk = || root(vec![game("g", vec![rom("old.rom", 1, 0xAA), renamed.clone()])]);
+    let mk = || {
+        root(vec![game(
+            "g",
+            vec![rom("old.rom", 1, 0xAA), renamed.clone()],
+        )])
+    };
     let mut r = mk();
     remove_dupes(&mut r, false, false).unwrap();
     assert_eq!(names(dir(&r, "g")), ["old.rom", "new.rom"]);
@@ -757,7 +883,11 @@ fn remove_dupes_prefers_plain_names_and_keeps_different_content() {
 fn empty_sets_are_removed_recursively_but_the_root_stays() {
     let mut inner = DatDir::new("dir", FileType::UNSET);
     inner.child_add(game("hollow", vec![]));
-    let mut r = root(vec![game("full", vec![rom("r", 1, 1)]), DatNode::Dir(inner), game("hollow2", vec![])]);
+    let mut r = root(vec![
+        game("full", vec![rom("r", 1, 1)]),
+        DatNode::Dir(inner),
+        game("hollow2", vec![]),
+    ]);
     assert!(remove_empty_sets(&mut r));
     assert_eq!(names(&r), ["full"]);
     let mut none = root(vec![game("hollow", vec![])]);
@@ -767,7 +897,11 @@ fn empty_sets_are_removed_recursively_but_the_root_stays() {
 
 // ---- the whole pipeline ------------------------------------------------------------------------
 
-fn pipeline(text: &str, mut rule: CleanRule, tweak: impl FnOnce(&mut CleanRule)) -> (DatHeader, HeaderFileType) {
+fn pipeline(
+    text: &str,
+    mut rule: CleanRule,
+    tweak: impl FnOnce(&mut CleanRule),
+) -> (DatHeader, HeaderFileType) {
     tweak(&mut rule);
     let mut h = crate::read_dat(text.as_bytes(), "t.dat").expect("parses");
     run(&rule, &mut h).expect("cleans");
@@ -805,7 +939,10 @@ fn pipeline_default_rule_builds_trrntzip_games_with_extensions_and_header_types(
     let root = &h.base_dir;
     // The disk of the parent moved out of its zip into a directory of the same name (sorted
     // before the zip, because the directory name is a prefix of the archive's).
-    assert_eq!(names(root), ["Child (Japan).zip", "Parent (World)", "Parent (World).zip"]);
+    assert_eq!(
+        names(root),
+        ["Child (Japan).zip", "Parent (World)", "Parent (World).zip"]
+    );
 
     let parent = dir(root, "Parent (World).zip");
     assert_eq!(parent.base.file_type, FileType::ZIP);
@@ -829,7 +966,11 @@ fn pipeline_default_rule_builds_trrntzip_games_with_extensions_and_header_types(
     assert_eq!(names(child), ["a.nes", "c.nes"]);
     assert_eq!(child.game.as_ref().unwrap().description, "The Child");
     assert_eq!(
-        dir(root, "Parent (World).zip").game.as_ref().unwrap().description,
+        dir(root, "Parent (World).zip")
+            .game
+            .as_ref()
+            .unwrap()
+            .description,
         "\u{a4}",
         "a description that only repeats the name is blanked"
     );
@@ -861,9 +1002,15 @@ fn pipeline_merge_rule_moves_the_clone_into_the_parent() {
 fn pipeline_split_rule_marks_merged_roms() {
     let (h, _) = pipeline(CMP, rule(), |r| r.merge = MergeType::Split);
     let child = dir(&h.base_dir, "Child (Japan).zip");
-    assert_eq!(file(child, "a.nes").base.dat_status, DatStatus::IN_DAT_MERGED);
+    assert_eq!(
+        file(child, "a.nes").base.dat_status,
+        DatStatus::IN_DAT_MERGED
+    );
     assert_eq!(file(child, "a.nes").merge, "(Auto Merged)");
-    assert_eq!(file(child, "c.nes").base.dat_status, DatStatus::IN_DAT_COLLECT);
+    assert_eq!(
+        file(child, "c.nes").base.dat_status,
+        DatStatus::IN_DAT_COLLECT
+    );
 }
 
 #[test]
