@@ -155,3 +155,185 @@ fn real_torrentzips_are_rewritten_byte_identical() {
     eprintln!("{} zips, {} not byte-identical", rows.len(), bad.len());
     assert!(bad.is_empty(), "not byte-identical: {bad:?}");
 }
+
+// ---- CHD -------------------------------------------------------------------------------------
+
+use std::io::{Read, Seek, SeekFrom};
+use std::time::Instant;
+
+use rv_archive::chd::{codec_name, Chd, CompType};
+use rv_archive::{ArchiveError, ChdError};
+
+fn hex(b: &[u8]) -> String {
+    b.iter().map(|x| format!("{x:02x}")).collect()
+}
+
+/// A reader that flips one bit of the byte at `at`, so a copy of a 110 MB file is not needed.
+struct Flip<R> {
+    inner: R,
+    at: u64,
+}
+
+impl<R: Read + Seek> Read for Flip<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let start = self.inner.stream_position()?;
+        let n = self.inner.read(buf)?;
+        if (start..start + n as u64).contains(&self.at) {
+            buf[(self.at - start) as usize] ^= 0x01;
+        }
+        Ok(n)
+    }
+}
+
+impl<R: Seek> Seek for Flip<R> {
+    fn seek(&mut self, p: SeekFrom) -> std::io::Result<u64> {
+        self.inner.seek(p)
+    }
+}
+
+#[test]
+#[ignore = "needs RV_FIXTURES_DIR"]
+fn real_chds_verify_against_their_headers() {
+    let root = sample_dir();
+    let files = sample_files("chd");
+    eprintln!("| file | version | hunks by type | hunk bytes | hunks | bytes | raw SHA-1 (= header) | combined SHA-1 (= header) | seconds |");
+    eprintln!("|---|---|---|---|---|---|---|---|---|");
+    for path in &files {
+        let rel = path.strip_prefix(&root).unwrap().display().to_string();
+        let mut chd =
+            Chd::open(fs::File::open(path).unwrap()).unwrap_or_else(|e| panic!("{rel}: {e}"));
+        let h = chd.header().clone();
+        assert_eq!(h.version, 5, "{rel}");
+        assert!(!h.requires_parent(), "{rel}");
+        assert!(
+            chd.unsupported_codec().is_none(),
+            "{rel}: {:?}",
+            chd.unsupported_codec()
+        );
+        // How many hunks use each codec slot, or are copies of another hunk.
+        let mut by_type: Vec<String> = Vec::new();
+        for (slot, &c) in h.compressors.iter().enumerate().filter(|(_, &c)| c != 0) {
+            let n = h
+                .map
+                .iter()
+                .filter(|m| m.comp == CompType::Codec(slot as u8))
+                .count();
+            by_type.push(format!("{} {n}", codec_name(c)));
+        }
+        let selfs = h.map.iter().filter(|m| m.comp == CompType::SelfRef).count();
+        by_type.push(format!("self {selfs}"));
+        let codecs = by_type;
+        let t = Instant::now();
+        let r = chd.verify().unwrap_or_else(|e| panic!("{rel}: {e}"));
+        let secs = t.elapsed().as_secs_f32();
+        assert_eq!(Some(r.raw_sha1), h.raw_sha1, "{rel}: raw SHA-1");
+        assert_eq!(r.combined_sha1, h.sha1, "{rel}: combined SHA-1");
+        assert_eq!(r.bytes, h.total_bytes);
+        eprintln!(
+            "| {rel} | {} | {} | {} | {} | {} | `{}` | `{}` | {secs:.1} |",
+            h.version,
+            codecs.join(" "),
+            h.hunk_bytes,
+            h.total_hunks,
+            h.total_bytes,
+            hex(&r.raw_sha1),
+            hex(&r.combined_sha1.unwrap()),
+        );
+    }
+}
+
+#[test]
+#[ignore = "needs RV_FIXTURES_DIR"]
+fn a_flipped_hunk_byte_fails_verification_on_a_real_chd() {
+    let mut flipped_codecs = std::collections::BTreeSet::new();
+    for path in &sample_files("chd") {
+        let chd = Chd::open(fs::File::open(path).unwrap()).unwrap();
+        // One flipped bit in the middle of a stored hunk of each codec slot in use.
+        for slot in 0..4u8 {
+            let Some(hunk) = chd
+                .header()
+                .map
+                .iter()
+                .filter(|m| m.comp == CompType::Codec(slot) && m.length > 64)
+                .nth(3)
+                .cloned()
+            else {
+                continue;
+            };
+            let at = hunk.offset + hunk.length as u64 / 2;
+            let mut bad = Chd::open(Flip {
+                inner: fs::File::open(path).unwrap(),
+                at,
+            })
+            .unwrap();
+            let err = bad.verify().expect_err("a flipped byte must not verify");
+            let name = codec_name(chd.header().compressors[slot as usize]);
+            eprintln!(
+                "{}: {name} hunk at {}: flipped the bit at byte {at}: {err}",
+                path.display(),
+                hunk.offset
+            );
+            assert!(
+                matches!(
+                    err,
+                    ArchiveError::Chd(ChdError::Decompression(_))
+                        | ArchiveError::Chd(ChdError::InvalidData(_))
+                ),
+                "{err:?}"
+            );
+            flipped_codecs.insert(name);
+        }
+    }
+    eprintln!("flipped bits in hunks of: {flipped_codecs:?}");
+    assert!(
+        ["cdlz", "cdzl", "cdfl"]
+            .iter()
+            .all(|c| flipped_codecs.contains(*c)),
+        "{flipped_codecs:?}"
+    );
+    let path = &sample_files("chd")[0];
+    // And the untouched file still verifies.
+    Chd::open(fs::File::open(path).unwrap())
+        .unwrap()
+        .verify()
+        .unwrap();
+}
+
+// ---- 7z --------------------------------------------------------------------------------------
+
+use rv_archive::sevenzip::SevenZipArchive;
+
+#[test]
+#[ignore = "needs RV_FIXTURES_DIR"]
+fn real_7z_lists_and_extracts_with_matching_crcs() {
+    let root = sample_dir();
+    for path in sample_files("7z") {
+        let rel = path.strip_prefix(&root).unwrap().display().to_string();
+        let mut z = SevenZipArchive::open(fs::File::open(&path).unwrap())
+            .unwrap_or_else(|e| panic!("{rel}: {e}"));
+        eprintln!("| file | entry | size | CRC32 (from the 7z header) | coders |");
+        eprintln!("|---|---|---|---|---|");
+        let coders = z
+            .folder_info(0)
+            .map(|f| f.coders.join("+"))
+            .unwrap_or_default();
+        for e in z.entries() {
+            let crc = e.crc32.map_or("-".to_string(), |c| format!("{c:08X}"));
+            eprintln!("| {rel} | {} | {} | {crc} | {coders} |", e.name, e.size);
+            assert!(
+                e.crc32.is_some() || e.is_directory || e.size == 0,
+                "{rel}: {} has no CRC",
+                e.name
+            );
+        }
+        let t = Instant::now();
+        // Extracting checks each member's CRC32 against the header (a mismatch is an error).
+        let bytes = z.verify_all().unwrap_or_else(|e| panic!("{rel}: {e}"));
+        let total: u64 = z.entries().iter().map(|e| e.size).sum();
+        assert_eq!(bytes, total);
+        eprintln!(
+            "{rel}: {bytes} bytes extracted and CRC-checked in {:.1} s",
+            t.elapsed().as_secs_f32()
+        );
+    }
+}

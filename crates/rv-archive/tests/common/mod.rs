@@ -121,3 +121,8 @@ pub fn build(entries: &[RawEntry], comment: Comment) -> Vec<u8> {
     out.extend(comment.as_bytes());
     out
 }
+
+pub mod chd;
+pub mod flac;
+
+pub mod sevenz;
