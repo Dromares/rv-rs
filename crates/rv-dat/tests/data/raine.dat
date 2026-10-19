@@ -1,0 +1,11 @@
+RAINE (680x0 Arcade Emulation)
+leading junk tokens
+emulator (
+	name raine
+	version 0.1
+	description "Raine description"
+)
+game (
+	name raine_game
+	rom ( name r.bin size 1 crc 1 )
+)

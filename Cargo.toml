@@ -29,3 +29,8 @@ rv-archive = { path = "crates/rv-archive" }
 rv-fix = { path = "crates/rv-fix" }
 rv-online = { path = "crates/rv-online" }
 rv-update = { path = "crates/rv-update" }
+
+# Hash and compression crates are far too slow unoptimised, and the real-data tests push
+# gigabytes through them. Only dependencies are optimised, workspace code stays debuggable.
+[profile.dev.package."*"]
+opt-level = 3

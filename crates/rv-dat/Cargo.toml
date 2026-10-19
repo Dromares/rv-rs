@@ -1,6 +1,6 @@
 [package]
 name = "rv-dat"
-description = "Placeholder, nothing implemented yet: DAT readers and writers"
+description = "ROMVault DAT readers (ClrMamePro, XML, MAME, software list, DOSCenter, RomCenter) and writers"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,3 +9,10 @@ publish.workspace = true
 
 [dependencies]
 rv-core = { workspace = true }
+quick-xml = "0.37"
+encoding_rs = "0.8"
+flate2 = "1"
+
+[dev-dependencies]
+flate2 = "1"
+rv-cache = { workspace = true }

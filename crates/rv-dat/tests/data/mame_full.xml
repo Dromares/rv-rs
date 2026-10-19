@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<!DOCTYPE mame [
+<!ELEMENT mame (machine+)>
+	<!ATTLIST mame build CDATA #IMPLIED>
+	<!ATTLIST machine isbios (yes|no) "no">
+]>
+<mame build="0.250 (mame0250)" version="0.250" date="2022-01-01">
+	<dir name="subdir">
+		<machine name="dirmachine"><description>D</description><rom name="d.bin" size="1" crc="1"/></machine>
+	</dir>
+	<machine name="parent" isbios="yes" isdevice="yes" runnable="no" sourcefile="p.cpp">
+		<description>Parent &amp; Co</description>
+		<year>1990</year>
+		<manufacturer>Maker</manufacturer>
+		<rom name="p1.bin" size="256" crc="01234567" sha1="0123456789abcdef0123456789abcdef01234567" merge="m.bin" status="good"/>
+		<rom name="p2.bin" size="128" crc="89abcdef" status="baddump" region="maincpu"/>
+		<disk name="hd" sha1="0123456789abcdef0123456789abcdef01234567" merge="hd" region="disks" status="nodump"/>
+		<device_ref name="devA"/>
+	</machine>
+	<machine name="clone" cloneof="parent" romof="parent">
+		<description>Clone</description>
+		<rom name="c1.bin" size="64" crc="00000002"/>
+	</machine>
+	<game name="legacygame"><description>Old style</description><rom name="g.bin" size="9" crc="9"/></game>
+</mame>
