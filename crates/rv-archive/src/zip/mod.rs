@@ -13,6 +13,7 @@ mod tests;
 mod time;
 mod write;
 
+pub(crate) use codec::raw_lzma1;
 pub use read::{EntryReader, LocalFileStatus, ZipArchive, ZipEntry};
 pub use structure::ZipStructure;
 pub use time::{dos_to_ticks, ticks_to_dos};
