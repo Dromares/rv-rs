@@ -270,3 +270,6 @@ pub fn finish(
     clear_description(&mut header.base_dir);
     header_file_type
 }
+
+#[cfg(test)]
+mod tests;
