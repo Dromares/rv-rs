@@ -10,10 +10,15 @@ use crate::model::{DatDir, DatFile, DatGame, DatHeader, DatNode};
 use crate::text::Loader;
 use crate::varfix::{clean_chd, clean_hash, to_lower, ulong};
 
+/// Deepest `dir ( ... )` nesting accepted; 3.8.0 recurses without a limit. Real DATs nest a
+/// few levels.
+const MAX_DEPTH: usize = 256;
+
 struct Ctx<'a> {
     dfl: Loader,
     filename: &'a str,
     rep: &'a mut Report,
+    depth: usize,
 }
 
 impl Ctx<'_> {
@@ -50,6 +55,7 @@ pub(crate) fn read(
         dfl: Loader::new(text),
         filename,
         rep,
+        depth: 0,
     };
     c.dfl.gn();
     if c.dfl.end_of_stream() {
@@ -211,6 +217,13 @@ fn load_dir(c: &mut Ctx, parent: &mut DatDir) -> R<bool> {
     }
     let mut dir = DatDir::new(&c.dfl.gn_rest(), FileType::UNSET);
     c.dfl.gn();
+    if c.depth >= MAX_DEPTH {
+        return Err(Abort(format!(
+            "{}: directories nested more than {MAX_DEPTH} deep, on line {}",
+            c.filename, c.dfl.line_number
+        )));
+    }
+    c.depth += 1;
     // C# adds the directory to its parent before reading its contents (`:238`), so a block
     // that fails half way keeps what was read; add it afterwards on every exit.
     let result = (|| -> R<bool> {
@@ -222,6 +235,7 @@ fn load_dir(c: &mut Ctx, parent: &mut DatDir) -> R<bool> {
         }
         Ok(true)
     })();
+    c.depth -= 1;
     parent.child_add(DatNode::Dir(dir));
     result
 }

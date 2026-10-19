@@ -21,6 +21,8 @@
 //! * The writers escape control characters as valid character references (`&#x0A;`); 3.8.0
 //!   writes `&#0A;`, which is not well-formed (`DatXMLWriter.cs:233-236`). They also escape
 //!   `build`, `version`, `date` of `<mame>` and `device_ref` names, which 3.8.0 writes raw.
+//! * Nesting is capped (256 levels of ClrMamePro `dir ( ... )`, 512 of XML elements); 3.8.0
+//!   recurses without a limit and a hostile file would overflow the stack.
 //! * `.datz` files with a zstd stream (gzip method 93, `Compress/gZip/gZip.cs:324-333`) are
 //!   not supported; plain deflate gzip is.
 

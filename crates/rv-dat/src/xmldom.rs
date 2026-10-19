@@ -130,6 +130,10 @@ fn is_ws_only(t: &str) -> bool {
     t.chars().all(|c| matches!(c, ' ' | '\t' | '\n' | '\r'))
 }
 
+/// Deepest element nesting accepted; `XmlReader` has no limit, but a million nested elements
+/// would overflow the stack when the tree is dropped. Real DATs nest a few levels.
+const MAX_DEPTH: usize = 512;
+
 fn xml_err(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
@@ -173,6 +177,9 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<Document, String> {
                 }
                 el.in_namespace = ns || el.name.contains(':');
                 if matches!(ev, Event::Start(_)) {
+                    if stack.len() >= MAX_DEPTH {
+                        return Err(format!("Elements are nested more than {MAX_DEPTH} deep."));
+                    }
                     stack.push(el);
                     default_ns.push(ns);
                 } else if let Some(parent) = stack.last_mut() {

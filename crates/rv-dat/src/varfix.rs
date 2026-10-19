@@ -8,7 +8,7 @@ pub fn ulong(n: &str) -> Option<u64> {
     if n.is_empty() || n == "-" {
         return None;
     }
-    if n.len() >= 2 && n[..2].eq_ignore_ascii_case("0x") {
+    if n.len() >= 2 && n.as_bytes()[..2].eq_ignore_ascii_case(b"0x") {
         // `Convert.ToUInt64(s, 16)`: hex digits only, overflow throws and becomes null.
         let digits = &n[2..];
         if digits.is_empty() || !digits.chars().all(|c| c.is_ascii_hexdigit()) {
@@ -98,6 +98,9 @@ mod tests {
         assert_eq!(ulong("-"), None);
         assert_eq!(ulong(""), None);
         assert_eq!(ulong("12a"), None);
+        // a multi-byte character where the `0x` test looks must not panic
+        assert_eq!(ulong("\u{20ac}1"), None);
+        assert_eq!(ulong("\u{e9}"), None);
         assert_eq!(ulong("18446744073709551615"), Some(u64::MAX));
         assert_eq!(ulong("18446744073709551616"), None);
     }

@@ -2,18 +2,18 @@
 
 An unofficial, unaffiliated Linux rewrite of [RomVault](https://github.com/RomVault/RVWorld) in Rust: a ROM collection manager that reads DAT files, scans your ROM library and fixes it. It is translated from the RVWorld 3.8.0 source (see [NOTICE](NOTICE)). It is not made or endorsed by the RomVault authors.
 
-**Status: pre-alpha.** Only the cache layer works: `rv-core` and `rv-cache` read and write ROMVault `.Cache` v2/v3 files byte for byte. The `rv` and `rv-gtk` programs do nothing yet.
+**Status: pre-alpha.** Three layers work. `rv-core` and `rv-cache` read and write ROMVault `.Cache` v2/v3 files byte for byte; `rv-dat` reads ClrMamePro, XML, MAME, software-list, DOSCenter and RomCenter DATs and writes the XML, MAME XML and DOSCenter formats ROMVault writes; `rv-scan` hashes files and detects copier headers. The `rv` and `rv-gtk` programs do nothing yet.
 
 ## Crates
 
-Responsibilities. `rv-core` (cache data model only) and `rv-cache` are implemented; every other crate is an empty placeholder today.
+Responsibilities. `rv-core` (cache data model only), `rv-cache`, `rv-dat` (parsed DATs only, see below) and `rv-scan` are implemented; every other crate is an empty placeholder today.
 
 | Crate | Notes |
 |---|---|
 | `rv-core` | Data model (the cache tree is done); settings will stay XML-compatible with `RomVault3cfg.xml` |
 | `rv-cache` | Byte-compatible `.Cache` v2/v3 read+write. **Fixes:** temp file, fsync, then rename (the old file is kept as `.CacheBackup`); falls back to `.CacheBackup` on corruption instead of exiting |
-| `rv-dat` | CMP/XML/MAME/ROMCenter/DOS/JSON readers and writers |
-| `rv-scan` | CRC32/MD5/SHA1/SHA256, copier headers. **Fixes:** inverted MD5 alternate match, SNES/PCE header detection |
+| `rv-dat` | Readers for ClrMamePro text (and RAINE), XML (`<datafile>`, MAME `<mame>`/`<mess>`), software lists, DOSCenter and RomCenter; writers for XML, MAME XML and DOSCenter, which are the ones ROMVault has (it has no JSON reader or writer, and none for ClrMamePro, RomCenter or software lists). Stops at the parsed DAT: ROMVault's clean-up pipeline and the merge into the database come in a later phase |
+| `rv-scan` | CRC32/MD5/SHA1/SHA256 in one pass over any `Read`, copier-header detection and header-stripped ("alt") hashes, hash comparison. Does not open archives. **Fixed:** inverted MD5 alternate match, SNES/PCE header detection that could never fire |
 | `rv-archive` | zip and byte-exact TorrentZip (own writer), 7z, CHD read |
 | `rv-fix` | **Fixes:** write to temp, fsync, then rename, never delete-then-rename; validate before the final name; no process exit without saving |
 | `rv-online` | Rebuilt from the Phase 0 spec. **Error telemetry (`SendErrorMessage*`) is not kept** |
@@ -33,6 +33,8 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
+
+Tests that need the maintainer's own ROMVault files (DATs, caches, ROMs) are `#[ignore]`d and never run in CI. Run them with `RV_FIXTURES_DIR=<dir> cargo test --workspace -- --include-ignored`; they fail, rather than pass, when the variable or a file is missing.
 
 ## License
 

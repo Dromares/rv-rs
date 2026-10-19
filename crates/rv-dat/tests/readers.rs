@@ -1067,3 +1067,94 @@ fn header_file_type_defaults_to_nothing() {
     let g = dir(&hd.base_dir, "Full Game");
     assert_eq!(file(g, "a.bin").header_file_type, HeaderFileType::NOTHING);
 }
+
+// ---------------------------------------------------------------------------------------
+// Robustness
+// ---------------------------------------------------------------------------------------
+
+#[test]
+fn mutated_input_never_panics_or_hangs() {
+    // A deterministic xorshift mutator over every fixture: truncations, flipped, inserted,
+    // deleted and duplicated bytes. Any panic fails the test; a hang times the run out.
+    let mut seed = 0x9E37_79B9_7F4A_7C15u64;
+    let mut next = move || {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed
+    };
+    let names = [
+        "cmp_full.dat",
+        "xml_full.xml",
+        "mame_full.xml",
+        "softlist_full.xml",
+        "dos_full.dat",
+        "romcenter_full.dat",
+        "romcenter_utf8.dat",
+        "raine.dat",
+    ];
+    let mut outcomes = [0usize; 2];
+    for name in names {
+        let original = data(name);
+        for _ in 0..1500 {
+            let mut b = original.clone();
+            let len = b.len().max(1);
+            let at = (next() as usize) % len;
+            match next() % 5 {
+                0 => b.truncate(at),
+                1 => b[at] ^= 1 << (next() % 8),
+                2 => b.insert(at, next() as u8),
+                3 => {
+                    let end = (at + (next() as usize) % 40).min(b.len());
+                    b.drain(at..end);
+                }
+                _ => {
+                    let end = (at + (next() as usize) % 200).min(b.len());
+                    let chunk = b[at..end].to_vec();
+                    b.splice(at..at, chunk);
+                }
+            }
+            let out = read_dat_report(&b, "fuzz");
+            outcomes[usize::from(out.ok)] += 1;
+            if let Some(h) = out.header {
+                // Whatever was read can be written again.
+                let _ = rv_dat::write_xml(&h, false);
+                let _ = rv_dat::write_mame_xml(&h);
+                let _ = rv_dat::write_dos(&h);
+            }
+        }
+    }
+    // Both kinds of outcome occur, so the mutator is exercising real parse failures.
+    assert!(outcomes[0] > 100 && outcomes[1] > 100, "{outcomes:?}");
+}
+
+#[test]
+fn deep_nesting_is_an_error_not_a_stack_overflow() {
+    let mut cmp = String::from("clrmamepro (\n\tname t\n)\n");
+    for i in 0..5000 {
+        cmp.push_str(&format!("dir (\n\tname d{i}\n"));
+    }
+    let out = read_dat_report(cmp.as_bytes(), "t");
+    assert!(!out.ok);
+    assert!(
+        out.messages.iter().any(|m| m.contains("nested more than")),
+        "{:?}",
+        out.messages
+    );
+
+    let mut xml = String::from("<?xml version=\"1.0\"?><datafile><header/>");
+    xml.push_str(&"<dir name=\"d\">".repeat(100_000));
+    let out = read_dat_report(xml.as_bytes(), "t");
+    assert!(!out.ok);
+    assert!(
+        out.messages.iter().any(|m| m.contains("nested more than")),
+        "{:?}",
+        out.messages
+    );
+    // A sensible depth is fine.
+    let mut ok = String::from("<?xml version=\"1.0\"?><datafile><header/>");
+    ok.push_str(&"<dir name=\"d\">".repeat(100));
+    ok.push_str(&"</dir>".repeat(100));
+    ok.push_str("</datafile>");
+    assert!(read_dat(ok.as_bytes(), "t").is_ok());
+}
