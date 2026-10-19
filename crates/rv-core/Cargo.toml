@@ -1,6 +1,6 @@
 [package]
 name = "rv-core"
-description = "Placeholder, nothing implemented yet: data model and settings"
+description = "Data model for the ROMVault cache tree; settings will follow"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
