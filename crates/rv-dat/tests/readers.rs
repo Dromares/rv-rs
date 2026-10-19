@@ -1129,6 +1129,21 @@ fn mutated_input_never_panics_or_hangs() {
 }
 
 #[test]
+fn one_huge_line_is_read_in_linear_time() {
+    // 2M tokens on one line took 113 s when the loader re-sliced the rest of the line per
+    // token. 1M tokens needed ~20 s then; linear it is ~0.3 s even in a debug build.
+    let text = format!("clrmamepro (\n{}", "( ".repeat(1_000_000));
+    let start = std::time::Instant::now();
+    let out = read_dat_report(text.as_bytes(), "t");
+    assert!(!out.ok);
+    assert!(
+        start.elapsed() < std::time::Duration::from_secs(5),
+        "took {:?}",
+        start.elapsed()
+    );
+}
+
+#[test]
 fn deep_nesting_is_an_error_not_a_stack_overflow() {
     let mut cmp = String::from("clrmamepro (\n\tname t\n)\n");
     for i in 0..5000 {

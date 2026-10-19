@@ -120,8 +120,11 @@ pub(crate) fn find_ignore_ascii_case(hay: &str, needle: &str) -> Option<usize> {
 pub(crate) struct Loader {
     lines: Vec<String>,
     pos: usize,
-    /// `_line`
+    /// `_line`: the unread part of the current line is `line[off..]`. Tokens advance `off`
+    /// instead of copying the rest of the line, so a line costs O(its length) in total and
+    /// not per token.
     line: String,
+    off: usize,
     /// `Next`
     pub next: String,
     /// `LineNumber`
@@ -134,9 +137,31 @@ impl Loader {
             lines: split_lines(text),
             pos: 0,
             line: String::new(),
+            off: 0,
             next: String::new(),
             line_number: 0,
         }
+    }
+
+    /// `_line`, the unread part of the current line.
+    fn rest(&self) -> &str {
+        &self.line[self.off..]
+    }
+
+    /// `_line = _line.Trim(' ')` after `off` moved: skip leading spaces by moving `off`, and
+    /// cut trailing ones.
+    fn trim_spaces(&mut self) {
+        let b = self.line.as_bytes();
+        let mut s = self.off;
+        while s < b.len() && b[s] == b' ' {
+            s += 1;
+        }
+        let mut e = b.len();
+        while e > s && b[e - 1] == b' ' {
+            e -= 1;
+        }
+        self.line.truncate(e);
+        self.off = s;
     }
 
     /// `EndOfStream()`: the underlying reader has no more lines (`:28-31`).
@@ -148,20 +173,23 @@ impl Loader {
     /// finished. The C# loops `while (Next != ")")` spin forever there; callers use this to
     /// stop instead.
     pub fn stuck(&self) -> bool {
-        self.line.trim().is_empty() && self.end_of_stream()
+        self.rest().trim().is_empty() && self.end_of_stream()
     }
 
     /// `GnRest()`: the rest of the line with every `"` removed (`:33-39`).
     pub fn gn_rest(&mut self) -> String {
-        let r = self.line.replace('"', "");
+        let r = self.rest().replace('"', "");
         self.line.clear();
+        self.off = 0;
         self.next = r.clone();
         r
     }
 
     /// `GnRestQ()`: the rest of the line unchanged (`:40-46`).
     pub fn gn_rest_q(&mut self) -> String {
-        let r = std::mem::take(&mut self.line);
+        let r = self.rest().to_owned();
+        self.line.clear();
+        self.off = 0;
         self.next = r.clone();
         r
     }
@@ -169,25 +197,21 @@ impl Loader {
     /// `GnNameToSize()` (`:48-55`): text up to ` size `, which stays in the buffer. With no
     /// ` size ` C# throws (`Substring(0, -1)`).
     pub fn gn_name_to_size(&mut self) -> R<String> {
-        let Some(pos) = find_ignore_ascii_case(&self.line, " size ") else {
+        let Some(pos) = find_ignore_ascii_case(self.rest(), " size ") else {
             return Err(Abort(
                 "Length cannot be less than zero (no ' size ' in line)".into(),
             ));
         };
-        let r = if pos == 0 {
-            String::new()
-        } else {
-            self.line[..pos].to_owned()
-        };
-        self.line = self.line[pos + 1..].to_owned();
+        let r = self.rest()[..pos].to_owned();
+        self.off += pos + 1;
         self.next = r.clone();
         Ok(r)
     }
 
     /// `Gn()` (`:57-113`).
     pub fn gn(&mut self) -> String {
-        while self.line.trim().is_empty() && !self.end_of_stream() {
-            let raw = self.lines[self.pos].clone();
+        while self.rest().trim().is_empty() && !self.end_of_stream() {
+            let raw = &self.lines[self.pos];
             self.pos += 1;
             self.line_number += 1;
             let mut l = raw.replace('\t', " ");
@@ -197,29 +221,30 @@ impl Loader {
             }
             // `#` and `;` comment lines, only if longer than one character (`:79-86`).
             let ts = l.trim_start();
-            if ts.chars().count() > 1 && (ts.starts_with('#') || ts.starts_with(';')) {
+            if ts.chars().nth(1).is_some() && (ts.starts_with('#') || ts.starts_with(';')) {
                 l.clear();
             }
             self.line = format!("{} ", l.trim());
+            self.off = 0;
         }
 
         let ret;
-        if !self.line.trim().is_empty() {
-            if self.line.starts_with('"') {
-                // The closing quote is searched from index 1; unterminated runs to the end.
-                let with_end = format!("{}\"", self.line);
-                let close = with_end[1..].find('"').map(|i| i + 1).unwrap_or(0);
-                ret = self.line[1..close.min(self.line.len())].to_owned();
-                let rest = format!("{} ", self.line);
-                self.line = rest[(close + 1).min(rest.len())..]
-                    .trim_matches(' ')
-                    .to_owned();
+        if !self.rest().trim().is_empty() {
+            let rest = self.rest();
+            let used;
+            if let Some(inner) = rest.strip_prefix('"') {
+                // The closing quote is searched after the opening one; unterminated runs to
+                // the end.
+                let end = inner.find('"').unwrap_or(inner.len());
+                ret = inner[..end].to_owned();
+                used = (end + 2).min(rest.len());
             } else {
-                let with_end = format!("{} ", self.line);
-                let sp = with_end.find(' ').unwrap_or(with_end.len());
-                ret = with_end[..sp].to_owned();
-                self.line = with_end[sp..].trim_matches(' ').to_owned();
+                let sp = rest.find(' ').unwrap_or(rest.len());
+                ret = rest[..sp].to_owned();
+                used = sp;
             }
+            self.off += used;
+            self.trim_spaces();
         } else {
             ret = String::new();
         }
@@ -339,5 +364,25 @@ mod tests {
         let mut bad = Loader::new("name noSizeHere\n");
         bad.gn();
         assert!(bad.gn_name_to_size().is_err());
+    }
+
+    /// A one-line file of N tokens must tokenize in O(N). The loader used to re-slice the
+    /// rest of the line per token: 160k tokens took 0.56 s and every doubling cost 4x.
+    #[test]
+    fn long_single_line_is_linear() {
+        let text = "( ".repeat(1_000_000);
+        let start = std::time::Instant::now();
+        let mut l = Loader::new(&text);
+        let mut n = 0usize;
+        while !l.gn().is_empty() {
+            n += 1;
+        }
+        assert_eq!(n, 1_000_000);
+        // Linear: ~0.1 s in a debug build. The old loader needed ~20 s here.
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(5),
+            "tokenizing took {:?}",
+            start.elapsed()
+        );
     }
 }
