@@ -10,7 +10,7 @@
 //!   `ZipUnsupportedCompression` in ROMVault;
 //! * writers write into the stream they are given and never touch an existing file by name.
 //!   [`AtomicFile`] is the temp-file, `fsync`, rename step; the caller wires it up (the fixer does
-//!   that in Phase 5).
+//!   that in Phase 5b).
 //!
 //! `rv-archive` does not depend on `rv-dat` or `rv-scan`.
 
