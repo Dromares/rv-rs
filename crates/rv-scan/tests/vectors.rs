@@ -169,6 +169,15 @@ fn headered(d: &rv_scan::header::Detector, body_len: usize) -> Vec<u8> {
 }
 
 #[test]
+fn the_table_has_the_31_rows_of_the_source() {
+    // `FileHeaders.cs:12-50`: 4 archive types, CHD, A7800 x4, FDS x5, Lynx x4, NES x4, PCE,
+    // PSID x5, SNES x2, SPC.
+    assert_eq!(DETECTORS.len(), 31);
+    let types: std::collections::BTreeSet<u8> = DETECTORS.iter().map(|d| d.file_type.0).collect();
+    assert_eq!(types.len(), 13);
+}
+
+#[test]
 fn every_detector_has_a_positive_and_a_negative_vector() {
     for (i, d) in DETECTORS.iter().enumerate() {
         let id = format!("row {i} ({:?}, magic@{})", d.file_type, d.magic_offset);
