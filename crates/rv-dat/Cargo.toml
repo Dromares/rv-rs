@@ -1,6 +1,6 @@
 [package]
 name = "rv-dat"
-description = "ROMVault DAT readers (ClrMamePro, XML, MAME, software list, DOSCenter, RomCenter) and writers"
+description = "ROMVault DAT readers (ClrMamePro, XML, MAME, software list, DOSCenter, RomCenter), writers, the DAT clean-up and the DAT update"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
