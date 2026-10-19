@@ -1,4 +1,4 @@
-//! Zip: a reader for every method ROMVault reads, and the byte-exact TorrentZip writer.
+//! Zip: a reader for the methods a permitted crate covers (Shrink, Reduce and Implode are typed errors), and the byte-exact TorrentZip writer.
 //!
 //! Spec: `docs/archives-and-rvio.md` section 2 and `docs/codecs.md` of the decompile notes (not
 //! part of this repository). Comments cite RVWorld 3.8.0 `Compress/ZipFile/*` and
