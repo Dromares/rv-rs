@@ -58,6 +58,11 @@ fn parse_int(s: &str) -> Option<i64> {
 
 /// `DatDOSReader.StringDateTimeToTicks`: `yyyy/mm/dd hh:mm:ss` into the packed MS-DOS value
 /// `(date << 16) | time`; years outside 1980..=2107 give .NET ticks instead.
+///
+/// Divergence kept on purpose: the source builds this in an `int`, so for the years 2044..=2107
+/// (bit 15 of the date set) it sign-extends to a negative `long`. Here the value stays positive
+/// (at most `0xffff_ffff`). `zip_date_time_to_string` masks both halves, so the text written out
+/// is identical either way; only a caller that compares the raw value would see the sign.
 pub(crate) fn string_date_time_to_ticks(s: &str) -> R<Option<i64>> {
     let b: Vec<char> = s.chars().collect();
     if b.len() != 19 {
@@ -140,6 +145,21 @@ fn civil_from_days_0001(days: i64) -> (i64, i64, i64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn late_dos_dates_stay_positive_and_print_the_same() {
+        // Bit 15 of the date is set from 2044 on; the source's `int` goes negative there.
+        for (text, ticks) in [
+            ("2044/01/01 00:00:00", 0x8021_0000_i64),
+            ("2107/12/31 23:59:58", 0xff9f_bf7d_i64),
+        ] {
+            let v = string_date_time_to_ticks(text).unwrap().unwrap();
+            assert_eq!(v, ticks);
+            assert_eq!(zip_date_time_to_string(Some(v)), text);
+            // the sign-extended value of the source prints the same
+            assert_eq!(zip_date_time_to_string(Some(i64::from(v as i32))), text);
+        }
+    }
 
     #[test]
     fn dos_packing_round_trip() {
