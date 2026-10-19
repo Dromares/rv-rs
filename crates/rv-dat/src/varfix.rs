@@ -9,8 +9,13 @@ pub fn ulong(n: &str) -> Option<u64> {
         return None;
     }
     if n.len() >= 2 && n.as_bytes()[..2].eq_ignore_ascii_case(b"0x") {
-        // `Convert.ToUInt64(s, 16)`: hex digits only, overflow throws and becomes null.
+        // `Convert.ToUInt64(s, 16)`: hex digits only, overflow throws and becomes null. It also
+        // skips one more `0x` of its own, so `0x0x1f` is 31 (`0x0x` is empty and stays null).
         let digits = &n[2..];
+        let digits = match digits.as_bytes() {
+            [b'0', b'x' | b'X', ..] => &digits[2..],
+            _ => digits,
+        };
         if digits.is_empty() || !digits.chars().all(|c| c.is_ascii_hexdigit()) {
             return None;
         }
@@ -95,6 +100,11 @@ mod tests {
         assert_eq!(ulong("0X1f"), Some(31));
         assert_eq!(ulong("0x"), None);
         assert_eq!(ulong("0xZZ"), None);
+        // `Convert.ToUInt64` drops a second `0x` after the one `VarFix` strips
+        assert_eq!(ulong("0x0x1f"), Some(31));
+        assert_eq!(ulong("0X0X1F"), Some(31));
+        assert_eq!(ulong("0x0x"), None);
+        assert_eq!(ulong("0x0x0x1f"), None);
         assert_eq!(ulong("-"), None);
         assert_eq!(ulong(""), None);
         assert_eq!(ulong("12a"), None);
