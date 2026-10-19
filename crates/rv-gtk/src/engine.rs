@@ -11,7 +11,9 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use rv_cache::{load_database, save_database, DatabaseError, DatabaseOptions, LoadSource, SaveError};
+use rv_cache::{
+    load_database, save_database, DatabaseError, DatabaseOptions, LoadSource, SaveError,
+};
 use rv_core::guard;
 use rv_core::progress::{CancelFlag, ProgressSink};
 use rv_core::{Database, ScanLevel, Settings};
@@ -19,7 +21,8 @@ use rv_dat::update::{update_dats, UpdateError, UpdateOptions, UpdateReport};
 use rv_scan::db::{scan_files, ScanError, ScanReport, ScanRequest, ScanTarget};
 
 /// Why Find Fixes and Fix are switched off.
-pub const FIX_PENDING: &str = "Needs the rv-fix library (Phase 5b, DAN-1791), which is not merged yet";
+pub const FIX_PENDING: &str =
+    "Needs the rv-fix library (Phase 5b, DAN-1791), which is not merged yet";
 
 /// The name of the settings file when none is given.
 pub const DEFAULT_CONFIG: &str = "RomVault3cfg.xml";
@@ -127,7 +130,11 @@ pub fn open_cache(settings: &Settings, allow_protected: bool) -> Result<Opened, 
 }
 
 /// `DB.Write`.
-pub fn save_cache(settings: &Settings, db: &mut Database, allow_protected: bool) -> Result<(), EngineError> {
+pub fn save_cache(
+    settings: &Settings,
+    db: &mut Database,
+    allow_protected: bool,
+) -> Result<(), EngineError> {
     check_paths(settings, allow_protected)?;
     save_database(&cache_path(settings), db).map_err(EngineError::Save)
 }
@@ -138,7 +145,10 @@ pub enum Task {
     /// "Update DATs", with `all` set for the "Update All DATs" entry that reads every DAT again.
     UpdateDats { all: bool },
     /// "Scan ROMs" at a level, on the ticked rows or on one row.
-    Scan { level: ScanLevel, target: ScanTarget },
+    Scan {
+        level: ScanLevel,
+        target: ScanTarget,
+    },
 }
 
 impl Task {
@@ -193,7 +203,11 @@ impl Outcome {
                 r.archives_scanned,
                 r.files_hashed,
                 r.errors.len(),
-                if r.aborted { " (stopped: a file changed under the scan)" } else { "" },
+                if r.aborted {
+                    " (stopped: a file changed under the scan)"
+                } else {
+                    ""
+                },
                 if r.cancelled { " (cancelled)" } else { "" }
             ),
         }
@@ -217,7 +231,8 @@ pub fn run_task(
                 invalidate: all.then(|| "DatRoot".to_owned()),
             };
             Outcome::Updated(
-                update_dats(db, settings, &options, progress, cancel).map_err(EngineError::Update)?,
+                update_dats(db, settings, &options, progress, cancel)
+                    .map_err(EngineError::Update)?,
             )
         }
         Task::Scan { level, target } => {

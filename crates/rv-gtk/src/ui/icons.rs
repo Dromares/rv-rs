@@ -45,9 +45,10 @@ pub fn symbol(status: RepStatus) -> Symbol {
         | RepStatus::MOVE_TO_SORT
         | RepStatus::MOVE_TO_CORRUPT
         | RepStatus::RENAME => Symbol::Arrow,
-        RepStatus::NOT_COLLECTED | RepStatus::UN_NEEDED | RepStatus::IGNORE | RepStatus::DELETED => {
-            Symbol::Minus
-        }
+        RepStatus::NOT_COLLECTED
+        | RepStatus::UN_NEEDED
+        | RepStatus::IGNORE
+        | RepStatus::DELETED => Symbol::Minus,
         _ => Symbol::Dot,
     }
 }
@@ -62,8 +63,20 @@ fn rounded(cr: &Context, x: f64, y: f64, w: f64, h: f64, r: f64) {
     cr.new_sub_path();
     cr.arc(x + w - r, y + r, r, -std::f64::consts::FRAC_PI_2, 0.0);
     cr.arc(x + w - r, y + h - r, r, 0.0, std::f64::consts::FRAC_PI_2);
-    cr.arc(x + r, y + h - r, r, std::f64::consts::FRAC_PI_2, std::f64::consts::PI);
-    cr.arc(x + r, y + r, r, std::f64::consts::PI, 3.0 * std::f64::consts::FRAC_PI_2);
+    cr.arc(
+        x + r,
+        y + h - r,
+        r,
+        std::f64::consts::FRAC_PI_2,
+        std::f64::consts::PI,
+    );
+    cr.arc(
+        x + r,
+        y + r,
+        r,
+        std::f64::consts::PI,
+        3.0 * std::f64::consts::FRAC_PI_2,
+    );
     cr.close_path();
 }
 
@@ -110,7 +123,10 @@ fn draw_symbol(cr: &Context, sym: Symbol, x: f64, y: f64, w: f64, h: f64, ink: R
             cr.set_font_size(h * 0.78);
             let text = if sym == Symbol::Bang { "!" } else { "?" };
             if let Ok(e) = cr.text_extents(text) {
-                cr.move_to(cx - e.width() / 2.0 - e.x_bearing(), cy - e.height() / 2.0 - e.y_bearing());
+                cr.move_to(
+                    cx - e.width() / 2.0 - e.x_bearing(),
+                    cy - e.height() / 2.0 - e.y_bearing(),
+                );
                 let _ = cr.show_text(text);
             }
         }
@@ -128,7 +144,19 @@ pub fn draw_chip(cr: &Context, x: f64, y: f64, w: f64, h: f64, status: RepStatus
     let _ = cr.stroke();
     // Bright red and brown are dark enough to want a white symbol.
     let ink = contrasty(bg);
-    draw_symbol(cr, symbol(status), x, y, w, h, if ink == Rgb::WHITE { ink } else { Rgb(40, 40, 40) });
+    draw_symbol(
+        cr,
+        symbol(status),
+        x,
+        y,
+        w,
+        h,
+        if ink == Rgb::WHITE {
+            ink
+        } else {
+            Rgb(40, 40, 40)
+        },
+    );
 }
 
 fn dat_tag(status: DatStatus) -> (&'static str, Rgb) {
@@ -144,7 +172,10 @@ fn text_in(cr: &Context, text: &str, x: f64, y: f64, w: f64, h: f64, size: f64) 
     cr.select_font_face("Sans", FontSlant::Normal, FontWeight::Bold);
     cr.set_font_size(size);
     if let Ok(e) = cr.text_extents(text) {
-        cr.move_to(x + (w - e.width()) / 2.0 - e.x_bearing(), y + (h - e.height()) / 2.0 - e.y_bearing());
+        cr.move_to(
+            x + (w - e.width()) / 2.0 - e.x_bearing(),
+            y + (h - e.height()) / 2.0 - e.y_bearing(),
+        );
         let _ = cr.show_text(text);
     }
 }
@@ -168,7 +199,15 @@ pub fn draw_got(cr: &Context, dat: DatStatus, status: RepStatus, mia_suffix: &st
     // MIA and new ROMs get a mark in the corner of the chip.
     if !mia_suffix.is_empty() {
         set(cr, Rgb(60, 60, 60));
-        text_in(cr, if mia_suffix == "_MIA" { "M" } else { "N" }, 22.0, 0.0, 10.0, 11.0, 8.0);
+        text_in(
+            cr,
+            if mia_suffix == "_MIA" { "M" } else { "N" },
+            22.0,
+            0.0,
+            10.0,
+            11.0,
+            8.0,
+        );
     }
     let _ = w;
 }
@@ -273,7 +312,11 @@ mod tests {
     fn every_status_has_a_chip_that_draws() {
         for n in 0..RepStatus::END_VALUE as u8 {
             let s = RepStatus(n);
-            assert!(inked(24, 18, |cr| draw_chip(cr, 0.0, 0.0, 22.0, 16.0, s)) > 100, "{}", s.name());
+            assert!(
+                inked(24, 18, |cr| draw_chip(cr, 0.0, 0.0, 22.0, 16.0, s)) > 100,
+                "{}",
+                s.name()
+            );
         }
     }
 
@@ -324,7 +367,14 @@ mod tests {
             DatStatus::IN_TO_SORT,
             DatStatus::NOT_IN_DAT,
         ] {
-            assert!(inked(GOT_SIZE.0, GOT_SIZE.1, |cr| draw_got(cr, dat, RepStatus::CORRECT, "")) > 300);
+            assert!(
+                inked(GOT_SIZE.0, GOT_SIZE.1, |cr| draw_got(
+                    cr,
+                    dat,
+                    RepStatus::CORRECT,
+                    ""
+                )) > 300
+            );
         }
     }
 }

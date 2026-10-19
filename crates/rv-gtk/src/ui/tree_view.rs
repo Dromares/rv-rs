@@ -10,7 +10,7 @@ use gtk4::cairo::Context;
 use gtk4::glib::{self, clone};
 use gtk4::prelude::*;
 use gtk4::subclass::prelude::*;
-use gtk4::{gdk, gio, pango};
+use gtk4::{gdk, gio};
 use rv_core::{ScanLevel, TreeSelect};
 
 use super::icons::{draw_folder, FOLDER_SIZE};
@@ -56,7 +56,11 @@ mod item {
         }
 
         pub fn node(&self) -> Arc<DirNode> {
-            self.imp().node.borrow().clone().expect("a tree item has a node")
+            self.imp()
+                .node
+                .borrow()
+                .clone()
+                .expect("a tree item has a node")
         }
     }
 }
@@ -73,7 +77,10 @@ pub enum TreeEvent {
         just_this: bool,
     },
     /// "Scan this directory" from the context menu.
-    ScanDir { path: Vec<String>, level: ScanLevel },
+    ScanDir {
+        path: Vec<String>,
+        level: ScanLevel,
+    },
 }
 
 type Registry = Rc<RefCell<HashMap<String, glib::WeakRef<TreeItem>>>>;
@@ -115,7 +122,13 @@ fn draw_tick(cr: &Context, value: TreeSelect) {
         cr.rectangle(x + 3.0, y + 6.0, 7.0, 5.0);
         let _ = cr.fill();
         cr.set_line_width(1.4);
-        cr.arc(x + 6.5, y + 6.0, 2.4, std::f64::consts::PI, std::f64::consts::TAU);
+        cr.arc(
+            x + 6.5,
+            y + 6.0,
+            2.4,
+            std::f64::consts::PI,
+            std::f64::consts::TAU,
+        );
         let _ = cr.stroke();
     }
 }
@@ -136,7 +149,6 @@ impl TreeView {
                 let icon = Painted::new(FOLDER_SIZE, FOLDER_SIZE);
                 let label = gtk4::Label::new(None);
                 label.set_xalign(0.0);
-                label.set_ellipsize(pango::EllipsizeMode::End);
                 let counts = gtk4::Label::new(None);
                 counts.set_xalign(0.0);
                 counts.add_css_class("dim-label");
@@ -156,7 +168,9 @@ impl TreeView {
                     #[weak]
                     li,
                     move |g, _, _, _| {
-                        let Some(item) = tree_item_of(&li) else { return };
+                        let Some(item) = tree_item_of(&li) else {
+                            return;
+                        };
                         g.set_state(gtk4::EventSequenceState::Claimed);
                         let node = item.node();
                         let current = TreeSelect(item.checked() as u8);
@@ -173,7 +187,9 @@ impl TreeView {
                         events(TreeEvent::Tick {
                             path: node.path.clone(),
                             value,
-                            just_this: g.current_event_state().contains(gdk::ModifierType::SHIFT_MASK),
+                            just_this: g
+                                .current_event_state()
+                                .contains(gdk::ModifierType::SHIFT_MASK),
                         });
                     }
                 ));
@@ -190,7 +206,9 @@ impl TreeView {
                     #[weak]
                     row,
                     move |_, _, x, y| {
-                        let Some(item) = tree_item_of(&li) else { return };
+                        let Some(item) = tree_item_of(&li) else {
+                            return;
+                        };
                         scan_menu(&row, x, y, item.node().path.clone(), events.clone());
                     }
                 ));
@@ -202,13 +220,25 @@ impl TreeView {
             let li = obj.downcast_ref::<gtk4::ListItem>().expect("a list item");
             let Some(item) = tree_item_of(li) else { return };
             let node = item.node();
-            let expander = li.child().and_downcast::<gtk4::TreeExpander>().expect("an expander");
+            let expander = li
+                .child()
+                .and_downcast::<gtk4::TreeExpander>()
+                .expect("an expander");
             expander.set_list_row(li.item().and_downcast_ref::<gtk4::TreeListRow>());
             let row = expander.child().and_downcast::<gtk4::Box>().expect("a row");
             let tick = row.first_child().and_downcast::<Painted>().expect("a tick");
-            let icon = tick.next_sibling().and_downcast::<Painted>().expect("an icon");
-            let label = icon.next_sibling().and_downcast::<gtk4::Label>().expect("a label");
-            let counts = label.next_sibling().and_downcast::<gtk4::Label>().expect("counts");
+            let icon = tick
+                .next_sibling()
+                .and_downcast::<Painted>()
+                .expect("an icon");
+            let label = icon
+                .next_sibling()
+                .and_downcast::<gtk4::Label>()
+                .expect("a label");
+            let counts = label
+                .next_sibling()
+                .and_downcast::<gtk4::Label>()
+                .expect("counts");
             label.set_text(&node.label);
             counts.set_text(&node.counts);
             if node.dats.is_empty() {
@@ -350,7 +380,12 @@ impl TreeView {
     /// Show a tick on the row at `path` and, unless `just_this`, on every row below it.
     pub fn apply_checked(&self, node: &DirNode, value: TreeSelect, just_this: bool) {
         node.set_checked(value);
-        if let Some(item) = self.live.borrow().get(&key(&node.path)).and_then(|w| w.upgrade()) {
+        if let Some(item) = self
+            .live
+            .borrow()
+            .get(&key(&node.path))
+            .and_then(|w| w.upgrade())
+        {
             item.set_checked(u32::from(value.0));
         }
         if just_this {

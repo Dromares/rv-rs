@@ -28,7 +28,7 @@ impl Default for Prefs {
         Prefs {
             width: 1280,
             height: 800,
-            tree_width: 380,
+            tree_width: 560,
             games_height: 340,
             scan_level: ScanLevel::Level2,
             filter: GameFilter::default(),
@@ -80,7 +80,11 @@ impl Prefs {
                 .and_then(|v| v.parse::<i32>().ok())
                 .filter(|v| (min..=max).contains(v))
         };
-        let flag = |k: &str| map.get(k).and_then(|v| v.parse::<u8>().ok()).map(|v| v != 0);
+        let flag = |k: &str| {
+            map.get(k)
+                .and_then(|v| v.parse::<u8>().ok())
+                .map(|v| v != 0)
+        };
         p.width = int("width", 400, 10_000).unwrap_or(p.width);
         p.height = int("height", 300, 10_000).unwrap_or(p.height);
         p.tree_width = int("tree_width", 100, 5_000).unwrap_or(p.tree_width);
@@ -133,9 +137,11 @@ mod tests {
 
     #[test]
     fn a_round_trip_keeps_everything() {
-        let mut p = Prefs::default();
-        p.width = 900;
-        p.scan_level = ScanLevel::Level3;
+        let mut p = Prefs {
+            width: 900,
+            scan_level: ScanLevel::Level3,
+            ..Prefs::default()
+        };
         p.filter.merged = true;
         p.filter.mia = false;
         p.allow_protected_paths = true;
@@ -144,7 +150,9 @@ mod tests {
 
     #[test]
     fn junk_leaves_the_defaults_and_the_guard_stays_on() {
-        let p = Prefs::from_text("width=abc\nheight=99999999\nscan_level=7\nallow_protected_paths=yes\nnoise\n=\n");
+        let p = Prefs::from_text(
+            "width=abc\nheight=99999999\nscan_level=7\nallow_protected_paths=yes\nnoise\n=\n",
+        );
         assert_eq!(p, Prefs::default());
         assert!(!p.allow_protected_paths);
         assert_eq!(Prefs::from_text(""), Prefs::default());
@@ -153,6 +161,8 @@ mod tests {
     #[test]
     fn the_guard_is_off_by_default() {
         assert!(!Prefs::default().allow_protected_paths);
-        assert!(Prefs::default().to_text().contains("allow_protected_paths=0"));
+        assert!(Prefs::default()
+            .to_text()
+            .contains("allow_protected_paths=0"));
     }
 }

@@ -95,12 +95,23 @@ impl GameGrid {
             c.set_sorter(Some(&gtk4::CustomSorter::new(|_, _| gtk4::Ordering::Equal)));
         };
         let kind = text_column::<GameRow>("Type", 56, false, |r| r.kind.to_owned(), |_| None);
-        let name = text_column::<GameRow>("Game (Directory / Zip)", 280, true, |r| r.name.clone(), |_| None);
-        let description =
-            text_column::<GameRow>("Description", 240, true, |r| r.description.clone(), |_| None);
+        let name = text_column::<GameRow>(
+            "Game (Directory / Zip)",
+            330,
+            false,
+            |r| r.name.clone(),
+            |_| None,
+        );
+        let description = text_column::<GameRow>(
+            "Description",
+            260,
+            false,
+            |r| r.description.clone(),
+            |_| None,
+        );
         let modified = text_column::<GameRow>(
             "Modified",
-            140,
+            170,
             false,
             |r| crate::model::time_text(r.modified),
             |_| None,
@@ -122,7 +133,9 @@ impl GameGrid {
             if let Some(row) = li.item().and_then(|i| row_of::<GameRow>(&i)) {
                 strip.set_content_width(strip_width(&row.status));
                 let status = row.status;
-                strip.set_painter(Box::new(move |cr, _, h| draw_strip(cr, f64::from(h), &status)));
+                strip.set_painter(Box::new(move |cr, _, h| {
+                    draw_strip(cr, f64::from(h), &status)
+                }));
             }
         });
         let strip = gtk4::ColumnViewColumn::new(Some("ROM Status"), Some(strip_factory));
@@ -148,7 +161,12 @@ impl GameGrid {
             quiet: Rc::new(Cell::new(false)),
         });
 
-        let columns = [(kind, GameSort::Kind), (name, GameSort::Name), (grid.description.clone(), GameSort::Description), (modified, GameSort::Modified)];
+        let columns = [
+            (kind, GameSort::Kind),
+            (name, GameSort::Name),
+            (grid.description.clone(), GameSort::Description),
+            (modified, GameSort::Modified),
+        ];
         if let Some(sorter) = view.sorter() {
             sorter.connect_changed(clone!(
                 #[weak]
@@ -156,10 +174,12 @@ impl GameGrid {
                 #[weak]
                 view,
                 move |_, _| {
-                    let Some(s) = view.sorter().and_downcast::<gtk4::ColumnViewSorter>() else { return };
-                    let by = s.primary_sort_column().and_then(|c| {
-                        columns.iter().find(|(col, _)| *col == c).map(|(_, by)| *by)
-                    });
+                    let Some(s) = view.sorter().and_downcast::<gtk4::ColumnViewSorter>() else {
+                        return;
+                    };
+                    let by = s
+                        .primary_sort_column()
+                        .and_then(|c| columns.iter().find(|(col, _)| *col == c).map(|(_, by)| *by));
                     let desc = s.primary_sort_order() == gtk4::SortType::Descending;
                     grid.sort.set(by.map(|b| (b, desc)));
                     grid.resort();
@@ -174,7 +194,12 @@ impl GameGrid {
                     return;
                 }
                 let index = (sel.selected() != gtk4::INVALID_LIST_POSITION)
-                    .then(|| grid.rows.borrow().get(sel.selected() as usize).map(|r| r.index))
+                    .then(|| {
+                        grid.rows
+                            .borrow()
+                            .get(sel.selected() as usize)
+                            .map(|r| r.index)
+                    })
                     .flatten();
                 events(GameEvent::Selected(index));
             }
@@ -219,12 +244,25 @@ impl GameGrid {
         *self.rows.borrow_mut() = rows.clone();
         self.quiet.set(true);
         self.list.set_source(Some(Rc::new(VecSource { rows })));
-        self.selection.set_selected(position.map_or(gtk4::INVALID_LIST_POSITION, |p| p as u32));
+        self.selection
+            .set_selected(position.map_or(gtk4::INVALID_LIST_POSITION, |p| p as u32));
         self.quiet.set(false);
     }
 
     pub fn count(&self) -> usize {
         self.rows.borrow().len()
+    }
+
+    /// Select the game with this name, if the list has it (for `--game`).
+    pub fn select_name(&self, name: &str) -> bool {
+        let position = self.rows.borrow().iter().position(|r| r.name == name);
+        match position {
+            Some(p) => {
+                self.selection.set_selected(p as u32);
+                true
+            }
+            None => false,
+        }
     }
 }
 
@@ -323,7 +361,8 @@ impl RomGrid {
         self.status.set_visible(list.show_status);
         self.modified.set_visible(list.show_modified);
         self.len.set(list.rows.len());
-        self.list.set_source(Some(Rc::new(VecSource { rows: list.rows })));
+        self.list
+            .set_source(Some(Rc::new(VecSource { rows: list.rows })));
     }
 
     pub fn clear(&self) {

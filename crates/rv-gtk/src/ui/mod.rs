@@ -35,7 +35,7 @@ use crate::prefs::{self, Prefs};
 use grids::{GameEvent, GameGrid, RomGrid};
 use tree_view::{TreeEvent, TreeView};
 
-/// What the command line asked for. The last five are for automation (screenshots, the smoke
+/// What the command line asked for. The last six are for automation (screenshots, the smoke
 /// test); a person never needs them.
 #[derive(Clone, Debug)]
 pub struct Args {
@@ -43,6 +43,8 @@ pub struct Args {
     pub prefs: PathBuf,
     /// Select this tree row (`RomVault/Console/NES`) once the cache is loaded.
     pub select: Option<String>,
+    /// Select this game in the list (by name).
+    pub game: Option<String>,
     /// Open this dialog at start: `settings` or `key`.
     pub open: Option<String>,
     /// Start this operation once the cache is loaded: `update`, `scan`.
@@ -58,6 +60,7 @@ impl Args {
             config: PathBuf::from(engine::DEFAULT_CONFIG),
             prefs: prefs::default_path(),
             select: None,
+            game: None,
             open: None,
             start: None,
             smoke: false,
@@ -70,6 +73,7 @@ impl Args {
                 "--config" => out.config = PathBuf::from(value("--config")?),
                 "--prefs" => out.prefs = PathBuf::from(value("--prefs")?),
                 "--select" => out.select = Some(value("--select")?),
+                "--game" => out.game = Some(value("--game")?),
                 "--open" => out.open = Some(value("--open")?),
                 "--start" => out.start = Some(value("--start")?),
                 "--smoke" => out.smoke = true,
@@ -162,6 +166,8 @@ struct Progress {
     errors: gtk4::TextBuffer,
     error_expander: gtk4::Expander,
     error_count: std::cell::Cell<usize>,
+    /// Which run the pulsing of the bar belongs to; a new run stops the old timer.
+    pulse: Rc<std::cell::Cell<u64>>,
 }
 
 pub struct App {
@@ -388,10 +394,12 @@ impl App {
         p.error_count.set(0);
         p.error_expander.set_visible(false);
         p.revealer.set_reveal_child(true);
+        let run = p.pulse.get() + 1;
+        p.pulse.set(run);
         if indeterminate {
-            let bar = p.overall.clone();
+            let (bar, current) = (p.overall.clone(), p.pulse.clone());
             glib::timeout_add_local(Duration::from_millis(120), move || {
-                if bar.is_mapped() && bar.fraction() == 0.0 {
+                if current.get() == run {
                     bar.pulse();
                     glib::ControlFlow::Continue
                 } else {
@@ -450,11 +458,23 @@ impl App {
             return;
         };
         let show_new_mia = self.settings.show_new_mia;
+        let t = Instant::now();
         let list = model::game_list(dir, &self.prefs.filter, show_new_mia);
+        let (n, build) = (list.rows.len(), t.elapsed());
         self.w.games.set_list(list, keep);
+        eprintln!(
+            "rv-gtk: game list of {}: {n} games, built in {:.1} ms, shown in {:.1} ms",
+            path.join("/"),
+            build.as_secs_f64() * 1000.0,
+            (t.elapsed() - build).as_secs_f64() * 1000.0
+        );
         let info = model::dir_info(&db.root, path, &dir.dir_status(show_new_mia));
         set_text_bold(&self.w.info_title, &info.title);
-        let fields: Vec<String> = info.fields.iter().map(|(k, v)| format!("{k}: {v}")).collect();
+        let fields: Vec<String> = info
+            .fields
+            .iter()
+            .map(|(k, v)| format!("{k}: {v}"))
+            .collect();
         self.w.info_fields.set_text(&fields.join("\n"));
         self.w.info_counts.set_text(&info.counts);
         self.refresh_roms();
@@ -508,9 +528,19 @@ impl App {
         }
         self.first_load = false;
         if let Some(sel) = self.args.select.clone() {
-            self.selected = Some(sel.split('/').filter(|s| !s.is_empty()).map(str::to_owned).collect());
+            self.selected = Some(
+                sel.split('/')
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_owned)
+                    .collect(),
+            );
             let rows = self.tree_rows.clone();
             self.show_tree(rows);
+        }
+        if let Some(game) = self.args.game.clone() {
+            // The selection event is queued behind this message; show the ROMs now.
+            self.w.games.select_name(&game);
+            self.refresh_roms();
         }
         match self.args.open.as_deref() {
             Some("settings") => sender.input(Msg::OpenSettings),
@@ -615,9 +645,15 @@ impl SimpleComponent for App {
             b.set_tooltip_text(Some(tip));
             b
         };
-        let update = button("Update DATs", "Read new and changed DATs under DatRoot into the database");
+        let update = button(
+            "Update DATs",
+            "Read new and changed DATs under DatRoot into the database",
+        );
         let update_all = button("All", "Read every DAT again, changed or not");
-        let scan = button("Scan ROMs", "Scan the ticked directories at the chosen level");
+        let scan = button(
+            "Scan ROMs",
+            "Scan the ticked directories at the chosen level",
+        );
         let scan_level =
             gtk4::DropDown::from_strings(&["Quick (headers only)", "Normal", "Full (re-scan)"]);
         scan_level.set_selected(match prefs.scan_level {
@@ -683,6 +719,10 @@ impl SimpleComponent for App {
         let info_fields = gtk4::Label::new(None);
         info_fields.set_xalign(0.0);
         info_fields.set_selectable(true);
+        info_fields.set_wrap(true);
+        info_fields.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
+        info_fields.set_max_width_chars(120);
+        info_fields.set_width_chars(20);
         info_fields.add_css_class("dim-label");
         let info_counts = gtk4::Label::new(None);
         info_counts.set_xalign(0.0);
@@ -868,6 +908,7 @@ impl SimpleComponent for App {
             Msg::Reload => self.reload(&sender),
             Msg::Loaded(Opaque(result)) => {
                 self.task = None;
+                self.w.progress.pulse.set(self.w.progress.pulse.get() + 1);
                 self.w.progress.revealer.set_reveal_child(false);
                 match result {
                     Ok(f) => {
@@ -1021,7 +1062,8 @@ fn absolute(path: &std::path::Path) -> PathBuf {
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .map_or_else(|| PathBuf::from("."), PathBuf::from);
-    dir.canonicalize().map_or_else(|_| path.to_path_buf(), |d| d.join(name))
+    dir.canonicalize()
+        .map_or_else(|_| path.to_path_buf(), |d| d.join(name))
 }
 
 fn build_progress(sender: &ComponentSender<App>) -> Progress {
@@ -1088,6 +1130,7 @@ fn build_progress(sender: &ComponentSender<App>) -> Progress {
         errors,
         error_expander,
         error_count: std::cell::Cell::new(0),
+        pulse: Rc::default(),
     }
 }
 
@@ -1116,6 +1159,8 @@ pub fn run(args: Args) {
         std::env::set_var("GTK_USE_PORTAL", "1");
     }
     relm4::RelmApp::new("rs.rv.gtk")
-        .with_args(vec![std::env::args().next().unwrap_or_else(|| "rv-gtk".to_owned())])
+        .with_args(vec![std::env::args()
+            .next()
+            .unwrap_or_else(|| "rv-gtk".to_owned())])
         .run::<App>(args);
 }

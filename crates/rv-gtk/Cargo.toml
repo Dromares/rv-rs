@@ -22,3 +22,11 @@ path = "src/lib.rs"
 [[bin]]
 name = "rv-gtk"
 path = "src/main.rs"
+
+# Needs a display, so it is its own program: it runs when RV_GTK_SMOKE=1 (CI sets it, under
+# xvfb-run) and says so and passes otherwise. GTK must also be used from the main thread, which
+# the default test harness does not give a test.
+[[test]]
+name = "smoke"
+path = "tests/smoke.rs"
+harness = false

@@ -151,11 +151,20 @@ mod tests {
     fn the_table_is_romvaults() {
         assert_eq!(status_colour(RepStatus::CORRECT), Some(Rgb(214, 255, 214)));
         assert_eq!(status_colour(RepStatus::MISSING), Some(Rgb(255, 214, 214)));
-        assert_eq!(status_colour(RepStatus::UN_SCANNED), Some(Rgb(214, 214, 255)));
+        assert_eq!(
+            status_colour(RepStatus::UN_SCANNED),
+            Some(Rgb(214, 214, 255))
+        );
         assert_eq!(status_colour(RepStatus::CORRUPT), Some(Rgb(255, 0, 0)));
         assert_eq!(status_colour(RepStatus::DELETE), Some(Rgb(140, 80, 80)));
-        assert_eq!(status_colour(RepStatus::CORRECT_MIA), Some(Rgb(100, 255, 100)));
-        assert_eq!(status_colour(RepStatus::INCOMPLETE), Some(Rgb(255, 235, 235)));
+        assert_eq!(
+            status_colour(RepStatus::CORRECT_MIA),
+            Some(Rgb(100, 255, 100))
+        );
+        assert_eq!(
+            status_colour(RepStatus::INCOMPLETE),
+            Some(Rgb(255, 235, 235))
+        );
     }
 
     #[test]
@@ -198,7 +207,11 @@ mod tests {
     fn css_has_a_rule_per_coloured_status() {
         let css = css();
         assert_eq!(css.lines().count(), 25);
-        assert!(css.contains(".rv-st-9 { background-color: rgb(214, 255, 214); color: rgb(0, 0, 0); }"));
-        assert!(css.contains(".rv-st-18 { background-color: rgb(140, 80, 80); color: rgb(255, 255, 255); }"));
+        assert!(
+            css.contains(".rv-st-9 { background-color: rgb(214, 255, 214); color: rgb(0, 0, 0); }")
+        );
+        assert!(css.contains(
+            ".rv-st-18 { background-color: rgb(140, 80, 80); color: rgb(255, 255, 255); }"
+        ));
     }
 }

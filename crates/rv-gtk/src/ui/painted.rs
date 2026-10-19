@@ -77,7 +77,8 @@ impl Painted {
                 area.queue_draw();
             }
         });
-        *self.imp().tracked.borrow_mut() = Some((item.upcast_ref::<glib::Object>().downgrade(), id));
+        *self.imp().tracked.borrow_mut() =
+            Some((item.upcast_ref::<glib::Object>().downgrade(), id));
     }
 
     /// Stop redrawing for the item tracked, if it is still there.

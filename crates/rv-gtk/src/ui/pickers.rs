@@ -11,7 +11,11 @@ use gtk4::{gio, Window};
 fn dialog(title: &str, current: &str) -> gtk4::FileDialog {
     let d = gtk4::FileDialog::builder().title(title).modal(true).build();
     let current = Path::new(current);
-    let start = if current.is_dir() { Some(current) } else { current.parent() };
+    let start = if current.is_dir() {
+        Some(current)
+    } else {
+        current.parent()
+    };
     if let Some(dir) = start.filter(|d| d.is_dir()) {
         d.set_initial_folder(Some(&gio::File::for_path(dir)));
     }
@@ -19,7 +23,12 @@ fn dialog(title: &str, current: &str) -> gtk4::FileDialog {
 }
 
 /// Ask for a directory; `done` gets it unless the dialog was cancelled.
-pub fn pick_folder(parent: &Window, title: &str, current: &str, done: impl FnOnce(PathBuf) + 'static) {
+pub fn pick_folder(
+    parent: &Window,
+    title: &str,
+    current: &str,
+    done: impl FnOnce(PathBuf) + 'static,
+) {
     dialog(title, current).select_folder(Some(parent), gio::Cancellable::NONE, move |res| {
         if let Some(path) = res.ok().and_then(|f| f.path()) {
             done(path);
@@ -28,7 +37,12 @@ pub fn pick_folder(parent: &Window, title: &str, current: &str, done: impl FnOnc
 }
 
 /// Ask for a file that may not exist yet (the cache is created on the first save).
-pub fn pick_new_file(parent: &Window, title: &str, current: &str, done: impl FnOnce(PathBuf) + 'static) {
+pub fn pick_new_file(
+    parent: &Window,
+    title: &str,
+    current: &str,
+    done: impl FnOnce(PathBuf) + 'static,
+) {
     let d = dialog(title, current);
     if let Some(name) = Path::new(current).file_name().and_then(|n| n.to_str()) {
         d.set_initial_name(Some(name));

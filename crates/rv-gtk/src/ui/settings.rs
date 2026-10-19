@@ -23,6 +23,9 @@ use crate::prefs::Prefs;
 
 type Shared = Rc<RefCell<Settings>>;
 
+/// A rule flag: its caption, how to read it and how to set it.
+type RuleFlag = (&'static str, fn(&DatRule) -> bool, fn(&mut DatRule, bool));
+
 /// The directory a tree key is mapped to, empty when it is not mapped.
 pub fn mapping_path(settings: &Settings, key: &str) -> String {
     settings
@@ -46,7 +49,9 @@ pub fn set_mapping(settings: &mut Settings, key: &str, path: &str) {
                 dir_key: key.to_owned(),
                 dir_path: path.to_owned(),
             });
-            settings.dir_mappings.sort_by(|a, b| a.dir_key.cmp(&b.dir_key));
+            settings
+                .dir_mappings
+                .sort_by(|a, b| a.dir_key.cmp(&b.dir_key));
         }
         None => {}
     }
@@ -201,10 +206,22 @@ const HEADER: &[(&str, HeaderType)] = &[
 ];
 const SUB_DIRS: &[(&str, RemoveSubType)] = &[
     ("Keep all sub directories", RemoveSubType::KeepAllSubDirs),
-    ("Remove all sub directories", RemoveSubType::RemoveAllSubDirs),
-    ("Remove all if no name conflicts", RemoveSubType::RemoveAllIfNoConflicts),
-    ("Remove if they hold single files", RemoveSubType::RemoveSubIfSingleFiles),
-    ("Remove if the name matches", RemoveSubType::RemoveSubIfNameMatches),
+    (
+        "Remove all sub directories",
+        RemoveSubType::RemoveAllSubDirs,
+    ),
+    (
+        "Remove all if no name conflicts",
+        RemoveSubType::RemoveAllIfNoConflicts,
+    ),
+    (
+        "Remove if they hold single files",
+        RemoveSubType::RemoveSubIfSingleFiles,
+    ),
+    (
+        "Remove if the name matches",
+        RemoveSubType::RemoveSubIfNameMatches,
+    ),
 ];
 
 // ---- the DAT rule form -----------------------------------------------------------------------
@@ -290,16 +307,52 @@ fn rule_form(s: &Shared, idx: usize) -> gtk4::Grid {
         .upcast()
     });
     let checks = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-    let flags: [(&str, fn(&DatRule) -> bool, fn(&mut DatRule, bool)); 9] = [
-        ("Use this archive type instead of the DAT's", |r| r.compression_override_dat, |r, v| r.compression_override_dat = v),
-        ("Convert files while fixing", |r| r.convert_while_fixing, |r, v| r.convert_while_fixing = v),
-        ("Use this merge instead of the DAT's", |r| r.merge_override_dat, |r, v| r.merge_override_dat = v),
-        ("One archive per DAT", |r| r.single_archive, |r, v| r.single_archive = v),
-        ("Multiple DATs in one directory", |r| r.multi_dat_dir_override, |r, v| r.multi_dat_dir_override = v),
-        ("Name directories after the DAT description", |r| r.use_description_as_dir_name, |r, v| r.use_description_as_dir_name = v),
-        ("Name directories after the DAT id", |r| r.use_id_for_name, |r, v| r.use_id_for_name = v),
-        ("Complete sets only", |r| r.complete_only, |r, v| r.complete_only = v),
-        ("Add category sub directories", |r| r.add_category_sub_dirs, |r, v| r.add_category_sub_dirs = v),
+    let flags: [RuleFlag; 9] = [
+        (
+            "Use this archive type instead of the DAT's",
+            |r| r.compression_override_dat,
+            |r, v| r.compression_override_dat = v,
+        ),
+        (
+            "Convert files while fixing",
+            |r| r.convert_while_fixing,
+            |r, v| r.convert_while_fixing = v,
+        ),
+        (
+            "Use this merge instead of the DAT's",
+            |r| r.merge_override_dat,
+            |r, v| r.merge_override_dat = v,
+        ),
+        (
+            "One archive per DAT",
+            |r| r.single_archive,
+            |r, v| r.single_archive = v,
+        ),
+        (
+            "Multiple DATs in one directory",
+            |r| r.multi_dat_dir_override,
+            |r, v| r.multi_dat_dir_override = v,
+        ),
+        (
+            "Name directories after the DAT description",
+            |r| r.use_description_as_dir_name,
+            |r, v| r.use_description_as_dir_name = v,
+        ),
+        (
+            "Name directories after the DAT id",
+            |r| r.use_id_for_name,
+            |r, v| r.use_id_for_name = v,
+        ),
+        (
+            "Complete sets only",
+            |r| r.complete_only,
+            |r, v| r.complete_only = v,
+        ),
+        (
+            "Add category sub directories",
+            |r| r.add_category_sub_dirs,
+            |r, v| r.add_category_sub_dirs = v,
+        ),
     ];
     for (label, get, set) in flags {
         checks.append(&rule_check(s, idx, label, get, set));
@@ -362,7 +415,10 @@ fn rules_page(s: &Shared) -> gtk4::Paned {
         #[weak]
         form,
         move |_, row| {
-            match row.map(|r| r.index() as usize).filter(|i| *i < s.borrow().dat_rules.len()) {
+            match row
+                .map(|r| r.index() as usize)
+                .filter(|i| *i < s.borrow().dat_rules.len())
+            {
                 Some(i) => form.set_child(Some(&rule_form(&s, i))),
                 None => form.set_child(None::<&gtk4::Widget>),
             }
@@ -386,7 +442,8 @@ fn rules_page(s: &Shared) -> gtk4::Paned {
         move |_| {
             let key = new_key.text().trim().replace('\\', "/");
             let key = key.trim_end_matches('/').to_owned();
-            if !key.starts_with("RomVault") || s.borrow().dat_rules.iter().any(|r| r.dir_key == key) {
+            if !key.starts_with("RomVault") || s.borrow().dat_rules.iter().any(|r| r.dir_key == key)
+            {
                 new_key.add_css_class("error");
                 return;
             }
@@ -411,7 +468,9 @@ fn rules_page(s: &Shared) -> gtk4::Paned {
         #[strong]
         fill,
         move |_| {
-            let Some(i) = list.selected_row().map(|r| r.index() as usize) else { return };
+            let Some(i) = list.selected_row().map(|r| r.index() as usize) else {
+                return;
+            };
             let mut st = s.borrow_mut();
             // The rule for the whole tree is the fallback for every DAT and stays.
             if st.dat_rules.get(i).is_some_and(|r| r.dir_key != "RomVault") {
@@ -483,10 +542,16 @@ fn directories_page(window: &gtk4::Window, s: &Shared) -> gtk4::Box {
                 k.set_xalign(0.0);
                 k.set_width_chars(34);
                 k.set_ellipsize(gtk4::pango::EllipsizeMode::Start);
-                let path = path_row(&window, "Choose the directory", &mapping_path(&s.borrow(), &key), true, {
-                    let (s, key) = (s.clone(), key.clone());
-                    move |p| set_mapping_keep(&mut s.borrow_mut(), &key, &p)
-                });
+                let path = path_row(
+                    &window,
+                    "Choose the directory",
+                    &mapping_path(&s.borrow(), &key),
+                    true,
+                    {
+                        let (s, key) = (s.clone(), key.clone());
+                        move |p| set_mapping_keep(&mut s.borrow_mut(), &key, &p)
+                    },
+                );
                 let del = gtk4::Button::with_label("Remove");
                 del.connect_clicked({
                     let (s, key, rebuild) = (s.clone(), key.clone(), rebuild.clone());
@@ -528,7 +593,10 @@ fn directories_page(window: &gtk4::Window, s: &Shared) -> gtk4::Box {
             let k = key.text().trim().replace('\\', "/");
             let k = k.trim_end_matches('/').to_owned();
             let p = path.text().trim().to_owned();
-            if k.is_empty() || p.is_empty() || !(k == "RomVault" || k.starts_with("RomVault/") || k.starts_with("ToSort")) {
+            if k.is_empty()
+                || p.is_empty()
+                || !(k == "RomVault" || k.starts_with("RomVault/") || k.starts_with("ToSort"))
+            {
                 key.add_css_class("error");
                 return;
             }
@@ -575,18 +643,30 @@ fn general_page(window: &gtk4::Window, s: &Shared, p: &Rc<RefCell<Prefs>>) -> gt
     );
     put(
         "ROM root (RomVault)",
-        path_row(window, "Choose the ROM root", &mapping_path(&st, "RomVault"), true, {
-            let s = s.clone();
-            move |v| set_mapping(&mut s.borrow_mut(), "RomVault", &v)
-        })
+        path_row(
+            window,
+            "Choose the ROM root",
+            &mapping_path(&st, "RomVault"),
+            true,
+            {
+                let s = s.clone();
+                move |v| set_mapping(&mut s.borrow_mut(), "RomVault", &v)
+            },
+        )
         .upcast(),
     );
     put(
         "ToSort",
-        path_row(window, "Choose the ToSort directory", &mapping_path(&st, "ToSort"), true, {
-            let s = s.clone();
-            move |v| set_mapping(&mut s.borrow_mut(), "ToSort", &v)
-        })
+        path_row(
+            window,
+            "Choose the ToSort directory",
+            &mapping_path(&st, "ToSort"),
+            true,
+            {
+                let s = s.clone();
+                move |v| set_mapping(&mut s.borrow_mut(), "ToSort", &v)
+            },
+        )
         .upcast(),
     );
     put(
@@ -656,7 +736,6 @@ fn general_page(window: &gtk4::Window, s: &Shared, p: &Rc<RefCell<Prefs>>) -> gt
         let p = p.clone();
         move |c| p.borrow_mut().allow_protected_paths = c.is_active()
     });
-    guard.add_css_class("error");
     guard.set_tooltip_text(Some(
         "These directories are refused by default so that a copy of someone's settings cannot touch their real collection.",
     ));
@@ -681,8 +760,14 @@ pub fn show(
     let p = Rc::new(RefCell::new(prefs.clone()));
 
     let book = gtk4::Notebook::new();
-    book.append_page(&general_page(&window, &s, &p), Some(&gtk4::Label::new(Some("General"))));
-    book.append_page(&directories_page(&window, &s), Some(&gtk4::Label::new(Some("Directories"))));
+    book.append_page(
+        &general_page(&window, &s, &p),
+        Some(&gtk4::Label::new(Some("General"))),
+    );
+    book.append_page(
+        &directories_page(&window, &s),
+        Some(&gtk4::Label::new(Some("Directories"))),
+    );
     book.append_page(&rules_page(&s), Some(&gtk4::Label::new(Some("DAT rules"))));
     let ignore = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
     ignore.set_margin_start(12);
@@ -742,7 +827,9 @@ pub fn show(
             let mut settings = s.borrow().clone();
             let prefs = p.borrow().clone();
             // A mapping that was emptied while typing is no mapping.
-            settings.dir_mappings.retain(|m| !m.dir_path.trim().is_empty());
+            settings
+                .dir_mappings
+                .retain(|m| !m.dir_path.trim().is_empty());
             match validate(&mut settings, &prefs) {
                 Ok(()) => {
                     apply(settings, prefs);
@@ -778,7 +865,13 @@ mod tests {
         set_mapping(&mut s, "ToSort", "/data/ToSort");
         assert_eq!(mapping_path(&s, "ToSort"), "/data/ToSort");
         set_mapping(&mut s, "ToSort", "/other");
-        assert_eq!(s.dir_mappings.iter().filter(|m| m.dir_key == "ToSort").count(), 1);
+        assert_eq!(
+            s.dir_mappings
+                .iter()
+                .filter(|m| m.dir_key == "ToSort")
+                .count(),
+            1
+        );
         assert_eq!(mapping_path(&s, "ToSort"), "/other");
         set_mapping(&mut s, "ToSort", "  ");
         assert_eq!(mapping_path(&s, "ToSort"), "");
@@ -790,7 +883,10 @@ mod tests {
 
     #[test]
     fn text_boxes_become_lists_without_blank_lines() {
-        assert_eq!(lines_of(" *.bak \n\n regex:^a$\n  \n"), ["*.bak", "regex:^a$"]);
+        assert_eq!(
+            lines_of(" *.bak \n\n regex:^a$\n  \n"),
+            ["*.bak", "regex:^a$"]
+        );
         assert!(lines_of("").is_empty());
     }
 
@@ -802,7 +898,9 @@ mod tests {
 
         let mut bad = Settings::default();
         bad.ignore_files = vec!["regex:(unclosed".to_owned()];
-        assert!(validate(&mut bad, &prefs).unwrap_err().contains("ignore pattern"));
+        assert!(validate(&mut bad, &prefs)
+            .unwrap_err()
+            .contains("ignore pattern"));
 
         let mut fenced = Settings::default();
         fenced.dat_root = "/mnt/HHD16TB/DatRoot".to_owned();
@@ -823,6 +921,8 @@ mod tests {
         assert!(FILTER.iter().any(|(_, v)| *v == r.filter));
         assert!(HEADER.iter().any(|(_, v)| *v == r.header_type));
         assert!(SUB_DIRS.iter().any(|(_, v)| *v == r.sub_dir_type));
-        assert!(FIX_LEVELS.iter().any(|(_, v)| *v == Settings::default().fix_level));
+        assert!(FIX_LEVELS
+            .iter()
+            .any(|(_, v)| *v == Settings::default().fix_level));
     }
 }

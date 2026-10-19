@@ -19,7 +19,7 @@ pub fn grouped(n: i64) -> String {
     let digits = n.unsigned_abs().to_string();
     let mut out = String::new();
     for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
             out.push(',');
         }
         out.push(c);
@@ -341,12 +341,7 @@ pub fn dir_at_mut<'a>(root: &'a mut RvFile, path: &[String]) -> Option<&'a mut R
 
 /// Tick a tree row (`rvTree.SetCheckedRecurse`, `rvTree.cs:540-553`): the row and, unless
 /// `just_this`, every row below it. Returns false when there is no such row.
-pub fn set_checked(
-    root: &mut RvFile,
-    path: &[String],
-    value: TreeSelect,
-    just_this: bool,
-) -> bool {
+pub fn set_checked(root: &mut RvFile, path: &[String], value: TreeSelect, just_this: bool) -> bool {
     fn apply(node: &mut RvFile, value: TreeSelect, just_this: bool) {
         if let Some(row) = node.tree.as_mut() {
             row.checked = value;
@@ -577,7 +572,13 @@ pub struct RomList {
 }
 
 /// `SetCell`: a value followed by where it came from, `(D)` DAT, `(F)` file header, `(V)` verified.
-fn with_flags(text: String, status: FileStatus, dat: FileStatus, file: FileStatus, verified: FileStatus) -> String {
+fn with_flags(
+    text: String,
+    status: FileStatus,
+    dat: FileStatus,
+    file: FileStatus,
+    verified: FileStatus,
+) -> String {
     let mut flags = String::new();
     if dat.0 != 0 && status.has(dat) {
         flags.push('D');
@@ -609,34 +610,95 @@ fn rom_row(file: &RvFile, prefix: &str, show_new_mia: bool) -> RomRow {
     if let Some(v) = file.chd_version {
         name.push_str(&format!(" (V{v})"));
     }
-    let d = if fs.has(FileStatus::HEADER_FILE_TYPE_FROM_DAT) { "D" } else { "" };
-    let f = if fs.has(FileStatus::HEADER_FILE_TYPE_FROM_HEADER) { "F" } else { "" };
-    let header = file.header_type();
-    if header != HeaderFileType::NOTHING || !d.is_empty() || !f.is_empty() {
-        let required = if file.header_type_required() { ",Required" } else { "" };
-        name.push_str(&format!(" ({}{required} {d}{f})", header_name(header)));
-    }
-    let mia = file.mia();
-    let in_dat = file.dat_status == DatStatus::IN_DAT_COLLECT
-        || file.dat_status == DatStatus::IN_DAT_MERGED;
-    let icon_suffix = if in_dat && (mia.contains(MiaStatus::MIA) || mia.contains(MiaStatus::MIA_FROM_DAT)) {
-        "_MIA"
-    } else if in_dat && mia.contains(MiaStatus::NEW) {
-        "_NEW"
+    let d = if fs.has(FileStatus::HEADER_FILE_TYPE_FROM_DAT) {
+        "D"
     } else {
         ""
     };
+    let f = if fs.has(FileStatus::HEADER_FILE_TYPE_FROM_HEADER) {
+        "F"
+    } else {
+        ""
+    };
+    let header = file.header_type();
+    if header != HeaderFileType::NOTHING || !d.is_empty() || !f.is_empty() {
+        let required = if file.header_type_required() {
+            ",Required"
+        } else {
+            ""
+        };
+        name.push_str(&format!(" ({}{required} {d}{f})", header_name(header)));
+    }
+    let mia = file.mia();
+    let in_dat =
+        file.dat_status == DatStatus::IN_DAT_COLLECT || file.dat_status == DatStatus::IN_DAT_MERGED;
+    let icon_suffix =
+        if in_dat && (mia.contains(MiaStatus::MIA) || mia.contains(MiaStatus::MIA_FROM_DAT)) {
+            "_MIA"
+        } else if in_dat && mia.contains(MiaStatus::NEW) {
+            "_NEW"
+        } else {
+            ""
+        };
     RomRow {
         name,
         merge: file.merge.clone().unwrap_or_default(),
-        size: with_flags(size_text(file.size), fs, FileStatus::SIZE_FROM_DAT, FileStatus::SIZE_FROM_HEADER, FileStatus::SIZE_VERIFIED),
-        crc: with_flags(hex(&file.crc), fs, FileStatus::CRC_FROM_DAT, FileStatus::CRC_FROM_HEADER, FileStatus::CRC_VERIFIED),
-        sha1: with_flags(hex(&file.sha1), fs, FileStatus::SHA1_FROM_DAT, FileStatus::SHA1_FROM_HEADER, FileStatus::SHA1_VERIFIED),
-        md5: with_flags(hex(&file.md5), fs, FileStatus::MD5_FROM_DAT, FileStatus::MD5_FROM_HEADER, FileStatus::MD5_VERIFIED),
-        alt_size: with_flags(size_text(file.alt_size), fs, FileStatus::ALT_SIZE_FROM_DAT, FileStatus::ALT_SIZE_FROM_HEADER, FileStatus::ALT_SIZE_VERIFIED),
-        alt_crc: with_flags(hex(&file.alt_crc), fs, FileStatus::ALT_CRC_FROM_DAT, FileStatus::ALT_CRC_FROM_HEADER, FileStatus::ALT_CRC_VERIFIED),
-        alt_sha1: with_flags(hex(&file.alt_sha1), fs, FileStatus::ALT_SHA1_FROM_DAT, FileStatus::ALT_SHA1_FROM_HEADER, FileStatus::ALT_SHA1_VERIFIED),
-        alt_md5: with_flags(hex(&file.alt_md5), fs, FileStatus::ALT_MD5_FROM_DAT, FileStatus::ALT_MD5_FROM_HEADER, FileStatus::ALT_MD5_VERIFIED),
+        size: with_flags(
+            size_text(file.size),
+            fs,
+            FileStatus::SIZE_FROM_DAT,
+            FileStatus::SIZE_FROM_HEADER,
+            FileStatus::SIZE_VERIFIED,
+        ),
+        crc: with_flags(
+            hex(&file.crc),
+            fs,
+            FileStatus::CRC_FROM_DAT,
+            FileStatus::CRC_FROM_HEADER,
+            FileStatus::CRC_VERIFIED,
+        ),
+        sha1: with_flags(
+            hex(&file.sha1),
+            fs,
+            FileStatus::SHA1_FROM_DAT,
+            FileStatus::SHA1_FROM_HEADER,
+            FileStatus::SHA1_VERIFIED,
+        ),
+        md5: with_flags(
+            hex(&file.md5),
+            fs,
+            FileStatus::MD5_FROM_DAT,
+            FileStatus::MD5_FROM_HEADER,
+            FileStatus::MD5_VERIFIED,
+        ),
+        alt_size: with_flags(
+            size_text(file.alt_size),
+            fs,
+            FileStatus::ALT_SIZE_FROM_DAT,
+            FileStatus::ALT_SIZE_FROM_HEADER,
+            FileStatus::ALT_SIZE_VERIFIED,
+        ),
+        alt_crc: with_flags(
+            hex(&file.alt_crc),
+            fs,
+            FileStatus::ALT_CRC_FROM_DAT,
+            FileStatus::ALT_CRC_FROM_HEADER,
+            FileStatus::ALT_CRC_VERIFIED,
+        ),
+        alt_sha1: with_flags(
+            hex(&file.alt_sha1),
+            fs,
+            FileStatus::ALT_SHA1_FROM_DAT,
+            FileStatus::ALT_SHA1_FROM_HEADER,
+            FileStatus::ALT_SHA1_VERIFIED,
+        ),
+        alt_md5: with_flags(
+            hex(&file.alt_md5),
+            fs,
+            FileStatus::ALT_MD5_FROM_DAT,
+            FileStatus::ALT_MD5_FROM_HEADER,
+            FileStatus::ALT_MD5_VERIFIED,
+        ),
         status: file.status.clone().unwrap_or_default(),
         modified: match file.file_mod_time_stamp {
             0 | i64::MIN => String::new(),
@@ -648,7 +710,13 @@ fn rom_row(file: &RvFile, prefix: &str, show_new_mia: bool) -> RomRow {
                 FileStatus(0),
                 FileStatus(0),
             ),
-            t => with_flags(time_text(t), fs, FileStatus::DATE_FROM_DAT, FileStatus(0), FileStatus(0)),
+            t => with_flags(
+                time_text(t),
+                fs,
+                FileStatus::DATE_FROM_DAT,
+                FileStatus(0),
+                FileStatus(0),
+            ),
         },
         zip_index: if file.file_type == FileType::FILE_ZIP {
             file.zip_file_index
@@ -684,7 +752,13 @@ fn header_name(h: HeaderFileType) -> &'static str {
     }
 }
 
-fn collect_roms(game: &RvFile, prefix: &str, show_merged: bool, show_new_mia: bool, out: &mut RomList) {
+fn collect_roms(
+    game: &RvFile,
+    prefix: &str,
+    show_merged: bool,
+    show_new_mia: bool,
+    out: &mut RomList,
+) {
     for child in &game.children {
         if child.is_file() {
             let hidden = child.dat_status == DatStatus::IN_DAT_MERGED
@@ -705,7 +779,13 @@ fn collect_roms(game: &RvFile, prefix: &str, show_merged: bool, show_new_mia: bo
         }
         // A DAT's own sub directories are part of the game (`AddDir`, `FrmMain_RomGrid.cs:100-138`).
         if game.dat_uid != 0 && child.is_directory() && child.game.is_none() {
-            collect_roms(child, &format!("{prefix}{}/", child.name), show_merged, show_new_mia, out);
+            collect_roms(
+                child,
+                &format!("{prefix}{}/", child.name),
+                show_merged,
+                show_new_mia,
+                out,
+            );
         }
     }
 }
@@ -776,9 +856,444 @@ pub fn dir_info(root: &RvFile, path: &[String], status: &DirStatus) -> DirInfo {
         ] {
             let v = dat.get(id).unwrap_or("").trim();
             if !v.is_empty() {
-                info.fields.push((caption, v.to_owned()));
+                // Authors lists run to hundreds of characters.
+                let short: String = v.chars().take(110).collect();
+                let more = if short.len() < v.len() { "..." } else { "" };
+                info.fields.push((caption, format!("{short}{more}")));
             }
         }
     }
     info
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rv_core::{Cx, MetaEntry, RvDat, RvTreeRow, Settings};
+
+    fn settings() -> Settings {
+        Settings::default()
+    }
+
+    /// A leaf with a DAT status and what the scan found.
+    fn rom(name: &str, dat: DatStatus, got: GotStatus, file_type: FileType) -> RvFile {
+        let s = settings();
+        let mut f = RvFile::new(file_type, name);
+        f.set_dat_got_status(dat, got, &Cx::new(&s, "RomVault/NES/Game"));
+        f.size = Some(1234567);
+        f.crc = Some(vec![0xde, 0xad, 0xbe, 0xef]);
+        f
+    }
+
+    fn game(name: &str, roms: Vec<RvFile>) -> RvFile {
+        let s = settings();
+        let mut g = RvFile::new(FileType::ZIP, name);
+        let got = if roms.iter().any(|r| r.got_status == GotStatus::GOT) {
+            GotStatus::GOT
+        } else {
+            GotStatus::NOT_GOT
+        };
+        g.set_dat_got_status(DatStatus::IN_DAT_COLLECT, got, &Cx::new(&s, "RomVault/NES"));
+        for r in roms {
+            g.child_add(r);
+        }
+        g
+    }
+
+    fn dir(name: &str, tree: bool) -> RvFile {
+        let mut d = RvFile::new(FileType::DIR, name);
+        d.dat_status = DatStatus::IN_DAT_COLLECT;
+        if tree {
+            d.tree = Some(RvTreeRow::default());
+        }
+        d
+    }
+
+    const HAVE: (DatStatus, GotStatus) = (DatStatus::IN_DAT_COLLECT, GotStatus::GOT);
+    const LACK: (DatStatus, GotStatus) = (DatStatus::IN_DAT_COLLECT, GotStatus::NOT_GOT);
+
+    fn file(name: &str, (dat, got): (DatStatus, GotStatus)) -> RvFile {
+        rom(name, dat, got, FileType::FILE_ZIP)
+    }
+
+    /// root > RomVault > NES (tree rows) > games; ToSort beside RomVault.
+    fn database() -> RvFile {
+        let mut nes = dir("NES", true);
+        nes.child_add(game(
+            "Complete",
+            vec![file("a.nes", HAVE), file("b.nes", HAVE)],
+        ));
+        nes.child_add(game(
+            "Partial",
+            vec![file("a.nes", HAVE), file("b.nes", LACK)],
+        ));
+        nes.child_add(game("Empty", vec![file("a.nes", LACK)]));
+        let mut unknown = game("Stray", vec![]);
+        unknown.set_dat_got_status(
+            DatStatus::NOT_IN_DAT,
+            GotStatus::GOT,
+            &Cx::new(&settings(), "RomVault/NES"),
+        );
+        unknown.child_add(rom(
+            "x.bin",
+            DatStatus::NOT_IN_DAT,
+            GotStatus::GOT,
+            FileType::FILE_ZIP,
+        ));
+        nes.child_add(unknown);
+        let mut rv = dir("RomVault", true);
+        rv.child_add(nes);
+        let mut to_sort = dir("ToSort", true);
+        to_sort.dat_status = DatStatus::IN_TO_SORT;
+        to_sort.to_sort_type = Some(ToSortDirType::PRIMARY.with(ToSortDirType::CACHE));
+        let mut root = dir("", true);
+        root.child_add(rv);
+        root.child_add(to_sort);
+        root
+    }
+
+    fn find<'a>(rows: &'a [Arc<DirNode>], path: &str) -> &'a Arc<DirNode> {
+        let mut rows = rows;
+        let mut found = None;
+        for name in path.split('/') {
+            let n = rows
+                .iter()
+                .find(|r| r.name == name)
+                .unwrap_or_else(|| panic!("{name}"));
+            found = Some(n);
+            rows = &n.children;
+        }
+        found.unwrap()
+    }
+
+    #[test]
+    fn the_tree_has_a_row_per_tree_directory_with_the_counts_of_everything_below() {
+        let root = database();
+        let rows = build_tree(&root, true);
+        assert_eq!(
+            rows.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(),
+            ["RomVault", "ToSort"]
+        );
+        // The counts are the library's own `dir_status`, computed here in one pass.
+        let nes_node = &root.children[0].children[0];
+        let nes = find(&rows, "RomVault/NES");
+        assert_eq!(nes.status, nes_node.dir_status(true));
+        let rv = find(&rows, "RomVault");
+        assert_eq!(rv.status, root.children[0].dir_status(true));
+        // Games are archives, not tree rows.
+        assert!(nes.children.is_empty());
+        assert_eq!(nes.path, ["RomVault", "NES"]);
+        assert_eq!(nes.tree_path(), "RomVault/NES");
+        // Have: 3 correct files; Missing: 2; one unknown file is neither.
+        assert_eq!(nes.status.count_correct(), 3);
+        assert_eq!(nes.status.count_missing(false), 2);
+        assert_eq!(nes.counts, "( Have: 3 \\ Missing: 2 )");
+        assert_eq!(nes.label, "NES");
+    }
+
+    #[test]
+    fn to_sort_says_files_and_its_role() {
+        let rows = build_tree(&database(), true);
+        let t = find(&rows, "ToSort");
+        assert_eq!(t.label, "ToSort (Primary)");
+        assert_eq!(t.counts, "(Files: 0)");
+        assert!(t.is_to_sort_primary_or_cache);
+        assert_eq!(
+            t.icon,
+            TreeIcon::Complete,
+            "an empty ToSort is green, as in ROMVault"
+        );
+    }
+
+    #[test]
+    fn the_folder_icon_follows_the_five_rules_in_order() {
+        let mut s = DirStatus::default();
+        assert_eq!(tree_icon(&s), TreeIcon::Complete); // nothing missing
+        s.add(RepStatus::MISSING, MiaStatus::NONE, true);
+        assert_eq!(tree_icon(&s), TreeIcon::Missing); // missing, nothing correct
+        s.add(RepStatus::CORRECT, MiaStatus::NONE, true);
+        assert_eq!(tree_icon(&s), TreeIcon::Partial);
+        let mut mia = DirStatus::default();
+        mia.add(RepStatus::CORRECT_MIA, MiaStatus::MIA, true);
+        mia.add(RepStatus::MISSING_MIA, MiaStatus::MIA, true);
+        assert_eq!(tree_icon(&mia), TreeIcon::Mia); // only MIA ROMs are missing
+        s.add(RepStatus::IN_TO_SORT, MiaStatus::NONE, true);
+        assert_eq!(tree_icon(&s), TreeIcon::ToSort); // wins over the rest
+    }
+
+    #[test]
+    fn a_dat_directory_shows_its_description_and_the_kind_of_folder() {
+        let s = settings();
+        let mut nes = dir("NES", true);
+        let mut dat = RvDat::new(
+            0,
+            DatFlags(0),
+            vec![MetaEntry {
+                id: dat_data::DESCRIPTION,
+                value: "Nintendo NES".into(),
+            }],
+        );
+        dat.uid = 7;
+        nes.dir_dats.push(dat);
+        let mut rv = dir("RomVault", true);
+        rv.child_add(nes);
+        let mut root = dir("", true);
+        root.child_add(rv);
+        let _ = Cx::new(&s, "");
+        let rows = build_tree(&root, true);
+        let n = find(&rows, "RomVault/NES");
+        assert_eq!(n.label, "NES: Nintendo NES");
+        assert_eq!(n.kind, FolderKind::Dat);
+        assert_eq!(find(&rows, "RomVault").kind, FolderKind::Directory);
+    }
+
+    #[test]
+    fn ticking_applies_to_the_row_and_below_unless_shift() {
+        let mut root = database();
+        let path: Vec<String> = ["RomVault"].map(String::from).to_vec();
+        assert!(set_checked(&mut root, &path, TreeSelect::UN_SELECTED, true));
+        let tick = |root: &RvFile, p: &[&str]| {
+            let p: Vec<String> = p.iter().map(|s| s.to_string()).collect();
+            dir_at(root, &p).unwrap().tree.unwrap().checked
+        };
+        assert_eq!(tick(&root, &["RomVault"]), TreeSelect::UN_SELECTED);
+        assert_eq!(
+            tick(&root, &["RomVault", "NES"]),
+            TreeSelect::SELECTED,
+            "shift: only this row"
+        );
+        assert!(set_checked(&mut root, &path, TreeSelect::LOCKED, false));
+        assert_eq!(tick(&root, &["RomVault", "NES"]), TreeSelect::LOCKED);
+        // A row that is not there changes nothing.
+        assert!(!set_checked(
+            &mut root,
+            &["Nope".to_owned()],
+            TreeSelect::SELECTED,
+            false
+        ));
+        assert!(set_expanded(&mut root, &path, false));
+        assert!(!dir_at(&root, &path).unwrap().tree.unwrap().expanded);
+        // The snapshot carries the same values.
+        let rows = build_tree(&root, true);
+        assert_eq!(find(&rows, "RomVault").checked(), TreeSelect::LOCKED);
+        assert!(!find(&rows, "RomVault").expanded());
+        find(&rows, "RomVault").set_checked(TreeSelect::SELECTED);
+        assert_eq!(find(&rows, "RomVault").checked(), TreeSelect::SELECTED);
+    }
+
+    fn names(l: &GameList) -> Vec<&str> {
+        l.rows.iter().map(|r| r.name.as_str()).collect()
+    }
+
+    #[test]
+    fn the_game_filters_follow_the_tick_boxes() {
+        let root = database();
+        let nes = &root.children[0].children[0];
+        let all = game_list(nes, &GameFilter::default(), true);
+        // Complete, Partial and Empty are on; the unknown one always shows.
+        assert_eq!(names(&all), ["Complete", "Empty", "Partial", "Stray"]);
+        let only = |f: fn(&mut GameFilter)| {
+            let mut g = GameFilter {
+                complete: false,
+                partial: false,
+                empty: false,
+                fixes: false,
+                mia: false,
+                merged: false,
+                text: String::new(),
+            };
+            f(&mut g);
+            game_list(nes, &g, true)
+        };
+        assert_eq!(names(&only(|f| f.complete = true)), ["Complete", "Stray"]);
+        assert_eq!(names(&only(|f| f.partial = true)), ["Partial", "Stray"]);
+        assert_eq!(names(&only(|f| f.empty = true)), ["Empty", "Stray"]);
+        let text = GameFilter {
+            text: "PART".to_owned(),
+            ..GameFilter::default()
+        };
+        assert_eq!(
+            names(&game_list(nes, &text, true)),
+            ["Partial"],
+            "case-insensitive"
+        );
+        // A game's row carries its own counts.
+        let partial = all.rows.iter().find(|r| r.name == "Partial").unwrap();
+        assert_eq!(
+            (
+                partial.status.count_correct(),
+                partial.status.count_missing(false)
+            ),
+            (1, 1)
+        );
+        assert_eq!(partial.kind, "Zip");
+        assert_eq!(partial.index, 2);
+    }
+
+    #[test]
+    fn games_sort_by_the_column_clicked_and_back() {
+        let root = database();
+        let nes = &root.children[0].children[0];
+        let mut l = game_list(nes, &GameFilter::default(), true);
+        sort_games(&mut l.rows, GameSort::Name, true);
+        assert_eq!(names(&l), ["Stray", "Partial", "Empty", "Complete"]);
+        sort_games(&mut l.rows, GameSort::Name, false);
+        assert_eq!(names(&l), ["Complete", "Empty", "Partial", "Stray"]);
+        sort_games(&mut l.rows, GameSort::Kind, false);
+        assert_eq!(l.rows.len(), 4);
+    }
+
+    #[test]
+    fn a_description_column_is_worth_showing_only_when_a_game_has_one() {
+        let mut nes = dir("NES", true);
+        let mut g = game("G", vec![file("a", HAVE)]);
+        nes.child_add(g.clone());
+        assert!(!game_list(&nes, &GameFilter::default(), true).show_description);
+        g.name = "H".into();
+        g.game = Some(rv_core::RvGame {
+            entries: vec![MetaEntry {
+                id: game_data::DESCRIPTION,
+                value: "A game".into(),
+            }],
+        });
+        nes.child_add(g);
+        let l = game_list(&nes, &GameFilter::default(), true);
+        assert!(l.show_description);
+        assert_eq!(l.rows[1].description, "A game");
+    }
+
+    #[test]
+    fn rom_rows_say_where_each_value_came_from() {
+        let mut f = file("a.nes", HAVE);
+        f.file_status = FileStatus::SIZE_FROM_DAT
+            .with(FileStatus::CRC_FROM_DAT)
+            .with(FileStatus::CRC_VERIFIED)
+            .with(FileStatus::SIZE_VERIFIED);
+        f.file_name = "other.nes".into();
+        f.merge = Some("parent".into());
+        f.sha1 = Some(vec![1; 20]);
+        f.file_mod_time_stamp = 638_607_595_200_000_000;
+        let mut missing = file("b.nes", LACK);
+        missing.mia_status = Some(MiaStatus::MIA);
+        let g = game("G", vec![f, missing]);
+        let l = rom_list(&g, false, true);
+        assert_eq!(l.rows.len(), 2);
+        let r = &l.rows[0];
+        assert_eq!(r.name, "a.nes (Found: other.nes)");
+        assert_eq!(r.size, "1,234,567 (DV)");
+        assert_eq!(r.crc, "deadbeef (DV)");
+        assert_eq!(r.sha1, "01".repeat(20));
+        assert_eq!(r.modified, "2024/09/01 03:52:00");
+        assert_eq!(r.rep_status, RepStatus::CORRECT);
+        assert!(l.show_merge && !l.show_alt && !l.show_status && l.show_modified);
+        // MIA changes the status as counted and marks the picture.
+        assert_eq!(l.rows[1].rep_status, RepStatus::MISSING_MIA);
+        assert_eq!(l.rows[1].icon_suffix, "_MIA");
+        assert_eq!(l.rows[0].icon_suffix, "");
+    }
+
+    #[test]
+    fn merged_roms_that_are_not_collected_are_hidden_until_asked_for() {
+        let merged = rom(
+            "m.nes",
+            DatStatus::IN_DAT_MERGED,
+            GotStatus::NOT_GOT,
+            FileType::FILE_ZIP,
+        );
+        assert_eq!(merged.rep_status, RepStatus::NOT_COLLECTED);
+        let g = game("G", vec![file("a.nes", HAVE), merged]);
+        assert_eq!(rom_list(&g, false, true).rows.len(), 1);
+        assert_eq!(rom_list(&g, true, true).rows.len(), 2);
+    }
+
+    #[test]
+    fn a_dat_directory_shows_the_files_in_its_sub_directories_with_their_path() {
+        let s = settings();
+        let mut game_dir = RvFile::new(FileType::DIR, "Game");
+        game_dir.dat_uid = 3;
+        game_dir.set_dat_got_status(
+            DatStatus::IN_DAT_COLLECT,
+            GotStatus::GOT,
+            &Cx::new(&s, "RomVault/NES"),
+        );
+        let mut sub = RvFile::new(FileType::DIR, "sub");
+        sub.child_add(rom(
+            "deep.bin",
+            DatStatus::IN_DAT_COLLECT,
+            GotStatus::GOT,
+            FileType::FILE,
+        ));
+        game_dir.child_add(rom(
+            "top.bin",
+            DatStatus::IN_DAT_COLLECT,
+            GotStatus::GOT,
+            FileType::FILE,
+        ));
+        game_dir.child_add(sub);
+        let l = rom_list(&game_dir, false, true);
+        let mut n: Vec<&str> = l.rows.iter().map(|r| r.name.as_str()).collect();
+        n.sort();
+        assert_eq!(n, ["sub/deep.bin", "top.bin"]);
+    }
+
+    #[test]
+    fn numbers_hashes_and_times_are_written_the_way_romvault_writes_them() {
+        assert_eq!(grouped(0), "0");
+        assert_eq!(grouped(999), "999");
+        assert_eq!(grouped(1000), "1,000");
+        assert_eq!(grouped(-1234567), "-1,234,567");
+        assert_eq!(hex(&Some(vec![0, 15, 255])), "000fff");
+        assert_eq!(hex(&None), "");
+        assert_eq!(time_text(0), "");
+        assert_eq!(time_text(i64::MIN), "");
+        assert_eq!(time_text(638_607_595_200_000_000), "2024/09/01 03:52:00");
+        // A packed DOS stamp: 1996-12-24 23:32:00 is what TorrentZip writes.
+        let dos = (((1996 - 1980) << 9 | 12 << 5 | 24) << 16) | (23 << 11 | 32 << 5);
+        assert_eq!(time_text(dos), "1996/12/24 23:32:00");
+    }
+
+    #[test]
+    fn the_info_panel_names_the_dat_and_counts() {
+        let mut nes = dir("NES", true);
+        let mut dat = RvDat::new(
+            0,
+            DatFlags(0),
+            vec![
+                MetaEntry {
+                    id: dat_data::DAT_NAME,
+                    value: "NES DAT".into(),
+                },
+                MetaEntry {
+                    id: dat_data::ID,
+                    value: "45".into(),
+                },
+                MetaEntry {
+                    id: dat_data::AUTHOR,
+                    value: "x".repeat(300),
+                },
+                MetaEntry {
+                    id: dat_data::VERSION,
+                    value: "1.2".into(),
+                },
+            ],
+        );
+        dat.uid = 1;
+        nes.dir_dats.push(dat);
+        nes.child_add(game("G", vec![file("a", HAVE), file("b", LACK)]));
+        let mut root = dir("", true);
+        let mut rv = dir("RomVault", true);
+        rv.child_add(nes);
+        root.child_add(rv);
+        let path = vec!["RomVault".to_owned(), "NES".to_owned()];
+        let status = dir_at(&root, &path).unwrap().dir_status(true);
+        let info = dir_info(&root, &path, &status);
+        assert_eq!(info.title, "NES:  NES DAT (ID:45)");
+        assert_eq!(
+            info.counts,
+            "ROMs: Got 1 \\ Fixable 0 \\ Missing 1 \\ Unknown 0"
+        );
+        assert_eq!(info.fields[0], ("Version", "1.2".to_owned()));
+        assert!(info.fields[1].1.ends_with("..."), "long values are cut");
+        assert!(info.fields[1].1.len() < 120);
+    }
 }
