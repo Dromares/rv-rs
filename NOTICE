@@ -1,0 +1,22 @@
+rv-rs
+Copyright 2026 the rv-rs authors
+
+rv-rs is an unofficial, unaffiliated rewrite of RomVault in Rust for Linux.
+It is not made, endorsed or supported by the RomVault / RVWorld project or its
+authors. "ROMVault" is the name of that project and is not used as the name of
+this product.
+
+This work is translated from, and its behaviour and file formats follow,
+RomVault / RVWorld, which is licensed under the Apache License, Version 2.0:
+
+    RVWorld
+    https://github.com/RomVault/RVWorld
+    tag V3.8.0, commit 0ff818d065515853f128d0c75ac5a054ab362249
+
+This repository is a new implementation in a different language. It changes
+the original: it replaces the Windows UI with GTK4, uses Linux-native paths,
+and changes the behaviour of several components. Where code or structure is
+carried over from the original, it remains subject to the original license
+and its copyright notices. Those notices belong to their respective authors.
+
+This product is licensed under the Apache License, Version 2.0. See LICENSE.

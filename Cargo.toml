@@ -1,0 +1,31 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/rv-core",
+    "crates/rv-cache",
+    "crates/rv-dat",
+    "crates/rv-scan",
+    "crates/rv-archive",
+    "crates/rv-fix",
+    "crates/rv-online",
+    "crates/rv-update",
+    "crates/rv-cli",
+    "crates/rv-gtk",
+]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/Dromares/rv-rs"
+publish = false
+
+[workspace.dependencies]
+rv-core = { path = "crates/rv-core" }
+rv-cache = { path = "crates/rv-cache" }
+rv-dat = { path = "crates/rv-dat" }
+rv-scan = { path = "crates/rv-scan" }
+rv-archive = { path = "crates/rv-archive" }
+rv-fix = { path = "crates/rv-fix" }
+rv-online = { path = "crates/rv-online" }
+rv-update = { path = "crates/rv-update" }

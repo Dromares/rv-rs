@@ -1,0 +1,22 @@
+[package]
+name = "rv-cli"
+description = "rv-rs command-line interface"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+rv-core = { workspace = true }
+rv-cache = { workspace = true }
+rv-dat = { workspace = true }
+rv-scan = { workspace = true }
+rv-archive = { workspace = true }
+rv-fix = { workspace = true }
+rv-online = { workspace = true }
+rv-update = { workspace = true }
+
+[[bin]]
+name = "rv"
+path = "src/main.rs"
