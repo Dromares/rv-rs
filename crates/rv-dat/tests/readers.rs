@@ -1180,7 +1180,7 @@ fn mutated_input_never_panics_or_hangs() {
 #[test]
 fn one_huge_line_is_read_in_linear_time() {
     // 2M tokens on one line took 113 s when the loader re-sliced the rest of the line per
-    // token. 1M tokens needed ~20 s then; linear it is ~0.3 s even in a debug build.
+    // token. 1M tokens needed ~30 s then; linear it is ~1 s even in a debug build.
     let text = format!("clrmamepro (\n{}", "( ".repeat(1_000_000));
     let start = std::time::Instant::now();
     let out = read_dat_report(text.as_bytes(), "t");

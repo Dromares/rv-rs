@@ -378,7 +378,7 @@ mod tests {
             n += 1;
         }
         assert_eq!(n, 1_000_000);
-        // Linear: ~0.1 s in a debug build. The old loader needed ~20 s here.
+        // Linear: ~0.1 s in a debug build. The old loader needed ~35 s here (release).
         assert!(
             start.elapsed() < std::time::Duration::from_secs(5),
             "tokenizing took {:?}",
