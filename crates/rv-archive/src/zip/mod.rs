@@ -13,7 +13,7 @@ mod tests;
 mod time;
 mod write;
 
-pub use read::{into_archive_error, EntryReader, LocalFileStatus, ZipArchive, ZipEntry};
+pub use read::{EntryReader, LocalFileStatus, ZipArchive, ZipEntry};
 pub use structure::ZipStructure;
 pub use time::{dos_to_ticks, ticks_to_dos};
 pub use write::{AddedEntry, TorrentZipWriter};

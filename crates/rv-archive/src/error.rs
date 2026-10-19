@@ -42,8 +42,6 @@ pub enum ArchiveError {
     NoSuchEntry(usize),
     /// A write that would break the structure being written (`ZipTrrntzipIncorrect*`).
     Structure(StructureError),
-    /// A CHD problem (`chd_error`, `CHDCommon.cs`).
-    Chd(ChdError),
 }
 
 /// Why a structured (TorrentZip-style) writer refused an entry.
@@ -63,31 +61,6 @@ pub enum StructureError {
     DirectoryWithData(String),
     /// More entries or bytes than the format can address.
     TooLarge(&'static str),
-}
-
-/// CHD failures (`chd_error`, the subset the verifier can produce).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ChdError {
-    /// Not a CHD (`CHDERR_INVALID_FILE`).
-    InvalidFile(&'static str),
-    /// A header or map field is inconsistent (`CHDERR_INVALID_DATA`).
-    InvalidData(String),
-    /// The header names a CHD version above 5 (`CHDERR_UNSUPPORTED_VERSION`).
-    UnsupportedVersion(u32),
-    /// The CHD needs its parent to be read (`CHDERR_REQUIRES_PARENT`).
-    RequiresParent,
-    /// A hunk or the map failed to decompress or failed its CRC (`CHDERR_DECOMPRESSION_ERROR`).
-    Decompression(String),
-    /// A codec this crate does not decode.
-    UnsupportedCodec(String),
-    /// The recomputed hash differs from the header (`CHDERR_CANT_VERIFY`).
-    VerifyFailed {
-        what: &'static str,
-        expected: String,
-        actual: String,
-    },
-    /// The metadata chain or its hash is wrong (`CHDERR_INVALID_METADATA`).
-    InvalidMetadata(String),
 }
 
 impl ArchiveError {
@@ -131,7 +104,6 @@ impl fmt::Display for ArchiveError {
             ArchiveError::Decode { entry, detail } => write!(f, "{entry}: cannot decode: {detail}"),
             ArchiveError::NoSuchEntry(i) => write!(f, "no entry {i}"),
             ArchiveError::Structure(e) => write!(f, "{e}"),
-            ArchiveError::Chd(e) => write!(f, "{e}"),
         }
     }
 }
@@ -153,25 +125,6 @@ impl fmt::Display for StructureError {
             StructureError::DataMismatch(s) => write!(f, "{s}"),
             StructureError::DirectoryWithData(n) => write!(f, "directory entry {n:?} has data"),
             StructureError::TooLarge(s) => write!(f, "too large: {s}"),
-        }
-    }
-}
-
-impl fmt::Display for ChdError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ChdError::InvalidFile(s) => write!(f, "not a valid CHD: {s}"),
-            ChdError::InvalidData(s) => write!(f, "invalid CHD data: {s}"),
-            ChdError::UnsupportedVersion(v) => write!(f, "unsupported CHD version {v}"),
-            ChdError::RequiresParent => write!(f, "the CHD needs its parent CHD"),
-            ChdError::Decompression(s) => write!(f, "CHD decompression error: {s}"),
-            ChdError::UnsupportedCodec(s) => write!(f, "unsupported CHD codec {s}"),
-            ChdError::VerifyFailed {
-                what,
-                expected,
-                actual,
-            } => write!(f, "CHD {what} is {actual}, the header says {expected}"),
-            ChdError::InvalidMetadata(s) => write!(f, "invalid CHD metadata: {s}"),
         }
     }
 }
@@ -199,12 +152,6 @@ impl From<io::Error> for ArchiveError {
 impl From<StructureError> for ArchiveError {
     fn from(e: StructureError) -> ArchiveError {
         ArchiveError::Structure(e)
-    }
-}
-
-impl From<ChdError> for ArchiveError {
-    fn from(e: ChdError) -> ArchiveError {
-        ArchiveError::Chd(e)
     }
 }
 

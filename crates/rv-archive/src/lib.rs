@@ -1,4 +1,4 @@
-//! `rv-archive`: zip (with a byte-exact TorrentZip writer), 7z and CHD.
+//! `rv-archive`: zip, with a byte-exact TorrentZip writer.
 //!
 //! The formats are specified in `docs/archives-and-rvio.md` and `docs/codecs.md` of the decompile
 //! notes (not part of this repository); comments cite the RVWorld 3.8.0 source lines through
@@ -15,6 +15,7 @@
 //! `rv-archive` does not depend on `rv-dat` or `rv-scan`.
 
 mod atomic;
+mod checked;
 pub mod cp437;
 pub mod deflate;
 mod error;
@@ -22,4 +23,5 @@ pub mod sort;
 pub mod zip;
 
 pub use atomic::AtomicFile;
-pub use error::{ArchiveError, ChdError, Result, StructureError};
+pub use checked::{into_archive_error, CheckedReader};
+pub use error::{ArchiveError, Result, StructureError};

@@ -5,7 +5,7 @@
 use std::io::{self, BufReader, Read, Seek, SeekFrom};
 use std::ops::BitOr;
 
-use super::codec::{io_to_decode, method_name, open_decoder, romvault_reads_method};
+use super::codec::{method_name, open_decoder, romvault_reads_method};
 use super::extra::{read_extra_fields, Zip64Fields};
 use super::structure::{
     validate_directories, validate_file_headers, validate_file_order, ZipStructure, TRRNTZERO,
@@ -16,8 +16,12 @@ use super::{
     CENTRAL_DIRECTORY_HEADER_SIGNATURE, END_OF_CENTRAL_DIR_SIGNATURE, LOCAL_FILE_HEADER_SIGNATURE,
     ZIP64_END_OF_CENTRAL_DIR_LOCATOR_SIGNATURE, ZIP64_END_OF_CENTRAL_DIR_SIGNATURE,
 };
+use crate::checked::{into_archive_error, CheckedReader};
 use crate::cp437;
 use crate::error::{ArchiveError, Result};
+
+/// A decoded entry stream that checks its own length and CRC32.
+pub type EntryReader<'a> = CheckedReader<'a>;
 
 /// Soft findings from comparing a central header with its local header (`LocalFileStatus`,
 /// `ZipFileData.cs:15-24`; the values match the C# flags).
@@ -639,15 +643,12 @@ impl<R: Read + Seek> ZipArchive<R> {
         self.reader.seek(SeekFrom::Start(e.data_offset))?;
         let raw = (&mut self.reader).take(e.compressed_size);
         let inner = open_decoder(e.method, raw, &e.name)?;
-        Ok(EntryReader {
+        Ok(CheckedReader::new(
             inner,
-            name: e.name,
-            expected_crc: e.crc32,
-            expected_len: e.uncompressed_size,
-            produced: 0,
-            hasher: crc32fast::Hasher::new(),
-            done: false,
-        })
+            e.name,
+            e.uncompressed_size,
+            Some(e.crc32),
+        ))
     }
 
     /// Read a whole entry into memory, checked.
@@ -740,73 +741,4 @@ fn validate_headers(c: &RawHeader, l: &RawHeader) -> Result<ZipEntry> {
         extra_data_found: c.extra.extra_data_found,
         status,
     })
-}
-
-/// A decoded entry stream that checks its own length and CRC32.
-pub struct EntryReader<'a> {
-    inner: Box<dyn Read + 'a>,
-    name: String,
-    expected_crc: u32,
-    expected_len: u64,
-    produced: u64,
-    hasher: crc32fast::Hasher,
-    done: bool,
-}
-
-impl EntryReader<'_> {
-    fn fail(e: ArchiveError) -> io::Error {
-        io::Error::new(io::ErrorKind::InvalidData, e)
-    }
-}
-
-impl Read for EntryReader<'_> {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        if self.done || buf.is_empty() {
-            return Ok(0);
-        }
-        let remaining = self.expected_len - self.produced;
-        let want = buf.len().min(remaining.min(usize::MAX as u64) as usize);
-        let n = if want == 0 {
-            0
-        } else {
-            self.inner
-                .read(&mut buf[..want])
-                .map_err(|e| Self::fail(io_to_decode(&self.name, e)))?
-        };
-        if n == 0 && remaining != 0 {
-            self.done = true;
-            return Err(Self::fail(ArchiveError::SizeMismatch {
-                entry: self.name.clone(),
-                expected: self.expected_len,
-                actual: self.produced,
-            }));
-        }
-        self.hasher.update(&buf[..n]);
-        self.produced += n as u64;
-        if self.produced == self.expected_len {
-            self.done = true;
-            let actual = self.hasher.clone().finalize();
-            if actual != self.expected_crc {
-                return Err(Self::fail(ArchiveError::CrcMismatch {
-                    entry: self.name.clone(),
-                    expected: self.expected_crc,
-                    actual,
-                }));
-            }
-        }
-        Ok(n)
-    }
-}
-
-/// Recover the [`ArchiveError`] an [`EntryReader`] wrapped in an `io::Error`.
-pub fn into_archive_error(e: io::Error) -> ArchiveError {
-    if e.get_ref().is_some_and(|inner| inner.is::<ArchiveError>()) {
-        if let Some(inner) = e.into_inner() {
-            if let Ok(a) = inner.downcast::<ArchiveError>() {
-                return *a;
-            }
-        }
-        unreachable!("checked above")
-    }
-    ArchiveError::from(e)
 }

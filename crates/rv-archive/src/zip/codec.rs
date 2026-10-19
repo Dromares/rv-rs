@@ -6,7 +6,7 @@
 //! [`ArchiveError::UnsupportedCompression`] when an entry is opened. See `docs/codecs.md`
 //! sections 7-9 of the decompile notes for the algorithms if someone ports them.
 
-use std::io::{self, BufReader, Read};
+use std::io::{BufReader, Read};
 
 use super::method;
 use crate::error::{ArchiveError, Result};
@@ -132,17 +132,4 @@ pub(crate) fn raw_lzma1<'a, R: Read + 'a>(
         BufReader::new(raw),
         stream,
     )))
-}
-
-/// Turn a decoder's `io::Error` into the entry-level error.
-pub(crate) fn io_to_decode(name: &str, e: io::Error) -> ArchiveError {
-    match e.kind() {
-        io::ErrorKind::UnexpectedEof => ArchiveError::Truncated {
-            what: "compressed data",
-        },
-        _ => ArchiveError::Decode {
-            entry: name.to_string(),
-            detail: e.to_string(),
-        },
-    }
 }
