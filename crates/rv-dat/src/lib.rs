@@ -23,6 +23,8 @@
 //!   `build`, `version`, `date` of `<mame>` and `device_ref` names, which 3.8.0 writes raw.
 //! * Nesting is capped (256 levels of ClrMamePro `dir ( ... )`, 512 of XML elements); 3.8.0
 //!   recurses without a limit and a hostile file would overflow the stack.
+//! * A `.datz` may inflate to at most [`MAX_DATZ_INFLATED`] (1 GiB); 3.8.0 reads it without a
+//!   limit.
 //! * `.datz` files with a zstd stream (gzip method 93, `Compress/gZip/gZip.cs:324-333`) are
 //!   not supported; plain deflate gzip is.
 
@@ -76,9 +78,20 @@ pub fn read_dat_report(bytes: &[u8], filename: &str) -> ReadOutcome {
     }
 }
 
+/// The most a `.datz` may inflate to before [`read_dat_file`] gives up. A full MAME XML DAT
+/// is a few hundred MB, so 1 GiB leaves room; a gzip bomb is stopped here, not at the
+/// allocator.
+pub const MAX_DATZ_INFLATED: u64 = 1 << 30;
+
 /// Read a DAT file. `.datz` (case-insensitive) is a gzip stream holding the DAT
-/// (`DatReader.cs:24-33`).
+/// (`DatReader.cs:24-33`), inflated up to [`MAX_DATZ_INFLATED`] bytes.
 pub fn read_dat_file(path: &Path) -> ReadOutcome {
+    read_dat_file_limited(path, MAX_DATZ_INFLATED)
+}
+
+/// [`read_dat_file`] with an explicit cap on what a `.datz` may inflate to. A stream that
+/// would inflate past `max_inflated` bytes is an error, like any other unreadable file.
+pub fn read_dat_file_limited(path: &Path, max_inflated: u64) -> ReadOutcome {
     let name = path.to_string_lossy().into_owned();
     let raw = match std::fs::read(path) {
         Ok(b) => b,
@@ -90,15 +103,33 @@ pub fn read_dat_file(path: &Path) -> ReadOutcome {
         .extension()
         .is_some_and(|e| e.eq_ignore_ascii_case("datz"));
     let bytes = if is_datz {
-        let mut out = Vec::new();
-        if let Err(e) = flate2::read::MultiGzDecoder::new(&raw[..]).read_to_end(&mut out) {
-            return ReadOutcome::failed(format!("{name}: Error Occured Opening Dat:\r\n{e}\r\n"));
+        match inflate_capped(&raw, max_inflated) {
+            Ok(out) => out,
+            Err(e) => {
+                return ReadOutcome::failed(format!(
+                    "{name}: Error Occured Opening Dat:\r\n{e}\r\n"
+                ))
+            }
         }
-        out
     } else {
         raw
     };
     read_dat_report(&bytes, &name)
+}
+
+/// Inflate a (multi-member) gzip stream, failing once it holds more than `max` bytes.
+fn inflate_capped(gz: &[u8], max: u64) -> std::io::Result<Vec<u8>> {
+    let mut out = Vec::new();
+    // One byte past the cap tells "exactly max" from "more than max".
+    flate2::read::MultiGzDecoder::new(gz)
+        .take(max.saturating_add(1))
+        .read_to_end(&mut out)?;
+    if out.len() as u64 > max {
+        return Err(std::io::Error::other(format!(
+            "inflated size exceeds the {max} byte limit"
+        )));
+    }
+    Ok(out)
 }
 
 /// `DatRead.ReadDat(byte[], ...)` (`DatReader.cs:46-110`): sniff the first non-blank line.

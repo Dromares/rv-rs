@@ -1056,6 +1056,55 @@ fn datz_is_gzip_of_a_dat() {
 }
 
 #[test]
+fn datz_inflate_is_capped() {
+    use std::io::Write;
+    let gzip = |bytes: &[u8]| {
+        let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        enc.write_all(bytes).unwrap();
+        enc.finish().unwrap()
+    };
+    let dat = data("cmp_full.dat");
+    let dir = std::env::temp_dir().join(format!("rv-dat-datz-cap-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("Cap.datz");
+
+    // Exactly at the cap is fine; one byte over is not.
+    std::fs::write(&path, gzip(&dat)).unwrap();
+    let at = rv_dat::read_dat_file_limited(&path, dat.len() as u64);
+    assert!(at.ok, "{:?}", at.messages);
+    let over = rv_dat::read_dat_file_limited(&path, dat.len() as u64 - 1);
+    assert!(!over.ok && over.header.is_none());
+    assert!(
+        over.messages[0].contains("exceeds the"),
+        "{:?}",
+        over.messages
+    );
+
+    // A bomb: 64 MiB of zeros is ~64 KiB of gzip, and must stop at the cap, not inflate.
+    let bomb = gzip(&vec![0u8; 64 << 20]);
+    assert!(bomb.len() < 1 << 20);
+    std::fs::write(&path, &bomb).unwrap();
+    let out = rv_dat::read_dat_file_limited(&path, 1 << 20);
+    assert!(!out.ok && out.header.is_none());
+    assert!(
+        out.messages[0].contains("exceeds the"),
+        "{:?}",
+        out.messages
+    );
+
+    // A second gzip member counts toward the same cap.
+    let mut two = gzip(&dat);
+    two.extend(gzip(&dat));
+    std::fs::write(&path, &two).unwrap();
+    assert!(!rv_dat::read_dat_file_limited(&path, dat.len() as u64 + 1).ok);
+
+    // The default cap leaves ordinary files alone.
+    std::fs::write(&path, gzip(&dat)).unwrap();
+    assert!(rv_dat::read_dat_file(&path).ok);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn missing_file_is_an_error() {
     let out = rv_dat::read_dat_file(std::path::Path::new("/nonexistent/none.dat"));
     assert!(!out.ok && out.header.is_none());
@@ -1126,6 +1175,21 @@ fn mutated_input_never_panics_or_hangs() {
     }
     // Both kinds of outcome occur, so the mutator is exercising real parse failures.
     assert!(outcomes[0] > 100 && outcomes[1] > 100, "{outcomes:?}");
+}
+
+#[test]
+fn one_huge_line_is_read_in_linear_time() {
+    // 2M tokens on one line took 113 s when the loader re-sliced the rest of the line per
+    // token. 1M tokens needed ~30 s then; linear it is ~1 s even in a debug build.
+    let text = format!("clrmamepro (\n{}", "( ".repeat(1_000_000));
+    let start = std::time::Instant::now();
+    let out = read_dat_report(text.as_bytes(), "t");
+    assert!(!out.ok);
+    assert!(
+        start.elapsed() < std::time::Duration::from_secs(5),
+        "took {:?}",
+        start.elapsed()
+    );
 }
 
 #[test]
