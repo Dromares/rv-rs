@@ -5,8 +5,8 @@
 //! when the in-memory state ROMVault would have after loading is wanted, for example
 //! before migrating a version 2 file. Writing afterwards stores the repaired values.
 //!
-//! Not covered: `RepStatusReset` (step 9), which needs the DAT rules and settings and
-//! belongs with the scanner.
+//! Not covered here: `RepStatusReset` (step 9). It needs the DAT rules and settings, so it lives
+//! in `rv-core` (`Database::report_status_reset`) and [`crate::load_database`] runs it.
 
 use rv_core::{DatStatus, FileStatus, FileType, MiaStatus, RvFile, ToSortDirType, ZipStructure};
 
