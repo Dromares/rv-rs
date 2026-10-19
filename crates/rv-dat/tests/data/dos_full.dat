@@ -1,0 +1,29 @@
+DOSCenter (
+	name: Test DOS Set
+	description: A DOS description
+	version: 1.2
+	date: 2020/05/06
+	author: Author Name
+	homepage: http://example.org
+	comment: Comment here
+)
+
+game (
+	name "First Game.zip"
+	file ( name FIRST.EXE size 1234 date 1996/12/24 23:32:00 crc 0A0B0C0D sha1 0123456789abcdef0123456789abcdef01234567 )
+	rom ( name sub dir/with space.dat size 5 date 2020/02/29 12:34:56 crc 5 )
+	file ( name nodate.bin size 7 crc 7 )
+)
+
+game (
+	name "ab.zip"
+	file ( name x size 1 date 1970/01/01 00:00:00 crc 1 )
+	file ( name y size 2 date 1979/12/31 23:59:59 crc 2 )
+	file ( name z size 3 date 2108/01/01 00:00:00 crc 3 )
+	file ( name bad size 4 date not-a-date xx crc 4 )
+)
+
+game (
+	name Plain
+	file ( name only.bin size 8 crc 8 unknownkey value )
+)

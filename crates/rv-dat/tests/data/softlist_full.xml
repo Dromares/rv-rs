@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<!DOCTYPE softwarelist SYSTEM "softwarelist.dtd">
+<softwarelist name="test_list" description="Test software list">
+	<software name="game1" cloneof="game0" romof="game0">
+		<description>Game 1</description>
+		<year>1985</year>
+		<publisher>Pub</publisher>
+		<info name="serial" value="x"/>
+		<part name="cart" interface="x_cart">
+			<dataarea name="rom" size="65536">
+				<rom name="a.bin" size="32768" crc="aabbccdd" sha1="0123456789abcdef0123456789abcdef01234567" status="baddump"/>
+				<rom name="b.bin" size="16384" crc="11223344" offset="0x8000"/>
+				<rom loadflag="continue" size="1024"/>
+				<rom loadflag="ignore" size="2048"/>
+				<rom loadflag="fill" size="4096"/>
+				<rom name="c.bin"/>
+			</dataarea>
+			<diskarea name="cdrom">
+				<disk name="game1.chd" sha1="00112233445566778899aabbccddeeff00112233" status="nodump"/>
+			</diskarea>
+		</part>
+		<part name="flop2">
+			<dataarea name="flop" size="1">
+				<rom name="d.bin" size="1" crc="00000001"/>
+				<rom loadflag="continue" size="2"/>
+			</dataarea>
+		</part>
+	</software>
+	<software name="empty"><description>No roms</description></software>
+	<software name="game2"><part name="p"><dataarea name="d"><rom name="z.bin" size="3" crc="3"/></dataarea></part></software>
+</softwarelist>

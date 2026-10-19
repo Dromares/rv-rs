@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE datafile PUBLIC "-//Logiqx//DTD ROM Management Datafile//EN" "http://www.logiqx.com/Dats/datafile.dtd">
+<datafile xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+	<header>
+		<id>45</id>
+		<name>Test XML</name>
+		<type>standard</type>
+		<rootdir>Root Dir</rootdir>
+		<description>Test XML Description</description>
+		<subset>sub</subset>
+		<category>Cat</category>
+		<version>2.0</version>
+		<date>2021-03-04</date>
+		<author>A &amp; B</author>
+		<email>x@example.org</email>
+		<homepage>Home</homepage>
+		<url>https://example.org</url>
+		<comment><![CDATA[A <comment> here]]></comment>
+		<romvault header="No-Intro_NES.xml" forcepacking="Zip" forcemerging="Split" dir="NoAutoDir"/>
+		<clrmamepro header="ignored.xml" forcepacking="unzip"/>
+		<notzipped>Yes</notzipped>
+	</header>
+	<!-- a comment -->
+	<dir name="outer">
+		<dir name="inner">
+			<game name="Nested Game">
+				<description>Nested</description>
+				<rom name="n.bin" size="1" crc="00000001"/>
+			</game>
+		</dir>
+		<machine name="Dir Machine">
+			<rom name="m.bin" size="2" crc="2"/>
+		</machine>
+	</dir>
+	<game name="Full Game" id="0001" romof="parent" cloneof="parent" cloneofid="0002" sampleof="samp" sourcefile="src.c" isbios="yes" isdevice="no" board="brd" runnable="no" type="Zip">
+		<category>Games</category>
+		<category></category>
+		<category>Extra</category>
+		<description>Full &amp; complete</description>
+		<year>1998</year>
+		<manufacturer>ACME</manufacturer>
+		<serial>SLUS-1</serial>
+		<version>1.1</version>
+		<game_id>G1</game_id>
+		<rom name="a.bin" size="16" crc="ABCD1234" sha1="0123456789ABCDEF0123456789ABCDEF01234567" sha256="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" md5="0123456789abcdef0123456789abcdef" merge="m.bin" status="Verified" region="USA" mia="yes" date="2020-01-01 00:00:00" serial="ignored"/>
+		<rom name="b.bin" size="0x20" crc="1" status="NoDump"/>
+		<rom name="c.bin" size="-" crc="-" sha1=""/>
+		<disk name="Disk.chd" sha1="00112233445566778899aabbccddeeff00112233" sha256="00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff" md5="00112233445566778899aabbccddeeff" merge="Parent.CHD" status="BadDump" mia="yes"/>
+		<device_ref name="dev1"/>
+		<device_ref name=" "/>
+		<device_ref name="dev2"/>
+		<unknown>ignored</unknown>
+	</game>
+	<game name="Dir Type" type="dir"/>
+	<game name="Seven Type" type="7Z"/>
+	<game name="Odd Type" type="rar"/>
+	<game name="Emu Game" id="ignored" cloneof="ignored">
+		<description>Emu</description>
+		<year>ignored</year>
+		<trurip>
+			<titleid>T1</titleid>
+			<publisher>Pub</publisher>
+			<developer>Dev</developer>
+			<year>2001</year>
+			<genre>Genre</genre>
+			<subgenre>Sub</subgenre>
+			<ratings>E</ratings>
+			<score>9</score>
+			<players>2</players>
+			<enabled>yes</enabled>
+			<crc>deadbeef</crc>
+			<cloneof>EmuParent</cloneof>
+			<relatedto>Other</relatedto>
+			<source>Src</source>
+		</trurip>
+		<rom name="e.bin" size="3" crc="3"/>
+	</game>
+	<game name="Tea Game"><tea><titleid>TEA</titleid></tea></game>
+	<game name="EmuArc Game"><EmuArc><titleid>ARC</titleid></EmuArc></game>
+	<machine name="A Machine"><rom name="x.bin" size="4" crc="4"/></machine>
+	<rom name="loose.bin" size="5" crc="5"/>
+	<disk name="loose.chd" sha1="1111111111111111111111111111111111111111"/>
+	<dir/>
+</datafile>

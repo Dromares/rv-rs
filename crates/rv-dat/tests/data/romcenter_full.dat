@@ -1,0 +1,34 @@
+[CREDITS]
+author=An Author
+email=a@example.org
+homepage=http://home
+url=http://url
+version=1.0
+date=2020-01-01
+comment=A comment
+
+[DAT]
+version=2.50
+plugin=arcade.dll
+split=1
+merge=0
+
+[EMULATOR]
+refname=Emu
+version=Emu 1.0
+category=Arcade
+exe=emu.exe
+runcmd=%rom%
+romspaths=roms
+
+[GAMES]
+¬parent¬Parent Desc¬parent¬Parent Desc¬p1.bin¬DEADBEEF¬1024¬¬¬
+¬parent¬Parent Desc¬parent¬Parent Desc¬p2.bin¬00000002¬2048¬¬¬
+¬parent¬Parent Desc¬child¬Child Desc¬c1.bin¬00000003¬16¬parent¬p1.bin¬
+a line with no separator is skipped
+[RESOURCES]
+¬res¬Res Desc¬res¬Res Desc¬r.bin¬AB¬8¬¬¬
+[DISKS]
+¬parent¬Parent Desc¬parent¬Parent Desc¬hd.chd¬0123456789abcdef0123456789abcdef01234567¬0¬¬hdparent.chd¬
+[GAMES]
+¬parent¬Parent Desc¬parent¬Parent Desc¬p3.bin¬00000004¬3¬¬¬

@@ -1,0 +1,125 @@
+clrmamepro (
+	name "Test Set"
+	description "Test Set Description"
+	category Testing
+	version 1.0
+	date 2020-01-02
+	author Someone Else
+	email a@example.org
+	homepage "home page"
+	url http://example.org/x
+	comment "a comment"
+	header nes.xml
+	forcezipping zip
+	forcemerging split
+	forcenodump obsolete
+	dir noautodir
+	games 3
+	unknownkey ignored
+)
+
+// a comment line
+# another comment
+; and another
+
+dir (
+	name sub
+	game (
+		name "Game In Dir"
+		description "Dir Game"
+		rom ( name d.bin size 4 crc 00000001 )
+	)
+	dir (
+		name deeper
+		machine (
+			name deepgame
+			rom ( name e.bin size 5 crc 2 )
+		)
+	)
+)
+
+game (
+	name "Game One"
+	description "The Description"
+	year 1999
+	manufacturer "ACME Corp"
+	romof parentgame
+	cloneof parentgame
+	sampleof samples
+	sourcefile src.c
+	board brd1
+	history "some history"
+	isdevice yes
+	serial ignoredserial
+	rebuildto ignored
+	sample ignored
+	biosset ignored
+	chip ignored
+	video ignored
+	sound ignored
+	input ignored
+	dipswitch ignored
+	driver ignored
+	display ignored
+	comment ignored
+	releaseyear ignored
+	releasemonth ignored
+	releaseday ignored
+	genre ignored
+	developer ignored
+	publisher ignored
+	homepage ignored
+	users ignored
+	version ignored
+	license ignored
+	device_ref ignored
+	driverstatus ignored
+	ismechanical ignored
+	note ignored
+	/* a block
+	   comment */
+	rom ( name a.bin size 16 crc ABCD1234 sha1 0123456789abcdef0123456789abcdef01234567 md5 0123456789abcdef0123456789abcdef merge m.bin flags Good )
+	rom ( name "with space.bin" size 0x20 crc32 1 hash ignored date "2020-01-01 00:00:00" bios ignored region ignored offs 0 )
+	rom ( name regioned.bin size 1 regiona ignored stuff
+	      more stuff )
+	rom ( name nd.bin nodump )
+	rom ( name bd.bin size 7 baddump )
+	rom ( name flagged.bin size 8 flags baddump )
+	badrom ( name badrom.bin size 9 )
+	unusedrom ( name unused.bin size 10 )
+	znbiosrom ( name znbios.bin size 11 )
+	s16sndrom ( name s16snd.bin size 12 )
+	s16gfxrom ( name s16gfx.bin size 13 )
+	neosndrom ( name neosnd.bin size 14 )
+	disk ( name Disk1.chd sha1 00112233445566778899aabbccddeeff00112233 md5 00112233445566778899aabbccddeeff region rgn merge parent.chd index 0 flags baddump )
+	disk ( name Disk2 nodump )
+	archive ( name ignored )
+)
+
+resource (
+	name "bios res"
+	description "A BIOS"
+	rom ( name bios.rom size 100 crc ffffffff )
+)
+
+game (
+	name "Game Two"
+	name "duplicate name"
+	rom ( name b.bin size 2 crc 1 )
+)
+
+game (
+	rebuildto "pre/path"
+	name "Rebuilt"
+	rom ( name c.bin size 3 crc 3 )
+)
+
+emulator (
+	name "MAME"
+	version "0.1"
+	debug yes
+)
+
+unknownblock
+
+// end of file
