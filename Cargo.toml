@@ -34,3 +34,8 @@ rv-update = { path = "crates/rv-update" }
 # gigabytes through them. Only dependencies are optimised, workspace code stays debuggable.
 [profile.dev.package."*"]
 opt-level = 3
+
+# rv-archive carries its own port of ROMVault's deflate and the real-data tests push gigabytes
+# through it, so it is optimised as well (it is the one workspace crate on that hot path).
+[profile.dev.package.rv-archive]
+opt-level = 3
