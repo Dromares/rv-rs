@@ -627,6 +627,74 @@ fn parse_enum<T: Copy>(name: &str, text: &str, table: &[(&str, T)]) -> Result<T,
         .ok_or_else(|| SettingsError(format!("{name}: unknown value {t:?}")))
 }
 
+/// `Compression` element names (the .NET enum member names).
+pub(crate) const COMPRESSION_NAMES: &[(&str, FileType)] = &[
+    ("UnSet", FileType::UNSET),
+    ("Dir", FileType::DIR),
+    ("Zip", FileType::ZIP),
+    ("SevenZip", FileType::SEVEN_ZIP),
+    ("File", FileType::FILE),
+    ("FileZip", FileType::FILE_ZIP),
+    ("FileSevenZip", FileType::FILE_SEVEN_ZIP),
+    ("FileOnly", FileType::FILE_ONLY),
+];
+
+/// `CompressionSub` element names (the .NET enum member names).
+pub(crate) const COMPRESSION_SUB_NAMES: &[(&str, ZipStructure)] = &[
+    ("None", ZipStructure::NONE),
+    ("ZipTrrnt", ZipStructure::ZIP_TRRNT),
+    ("ZipTDC", ZipStructure::ZIP_TDC),
+    ("ZipDTD", ZipStructure::ZIP_DTD),
+    ("SevenZipTrrnt", ZipStructure::SEVEN_ZIP_TRRNT),
+    ("ZipZSTD", ZipStructure::ZIP_ZSTD),
+    ("ZipDTZ", ZipStructure::ZIP_DTZ),
+    ("SevenZipSLZMA", ZipStructure::SEVEN_ZIP_SLZMA),
+    ("SevenZipNLZMA", ZipStructure::SEVEN_ZIP_NLZMA),
+    ("SevenZipSZSTD", ZipStructure::SEVEN_ZIP_SZSTD),
+    ("SevenZipNZSTD", ZipStructure::SEVEN_ZIP_NZSTD),
+];
+
+/// `Merge` element names (the .NET enum member names).
+pub(crate) const MERGE_NAMES: &[(&str, MergeType)] = &[
+    ("None", MergeType::None),
+    ("Split", MergeType::Split),
+    ("Merge", MergeType::Merge),
+    ("NonMerged", MergeType::NonMerged),
+    ("CHDsMerge", MergeType::ChdsMerge),
+];
+
+/// `Filter` element names (the .NET enum member names).
+pub(crate) const FILTER_NAMES: &[(&str, FilterType)] = &[
+    ("KeepAll", FilterType::KeepAll),
+    ("RomsOnly", FilterType::RomsOnly),
+    ("CHDsOnly", FilterType::ChdsOnly),
+];
+
+/// `HeaderType` element names (the .NET enum member names).
+pub(crate) const HEADER_TYPE_NAMES: &[(&str, HeaderType)] = &[
+    ("Optional", HeaderType::Optional),
+    ("Headered", HeaderType::Headered),
+    ("Headerless", HeaderType::Headerless),
+];
+
+/// `SubDirType` element names (the .NET enum member names).
+pub(crate) const SUB_DIR_TYPE_NAMES: &[(&str, RemoveSubType)] = &[
+    ("KeepAllSubDirs", RemoveSubType::KeepAllSubDirs),
+    ("RemoveAllSubDirs", RemoveSubType::RemoveAllSubDirs),
+    (
+        "RemoveAllIfNoConflicts",
+        RemoveSubType::RemoveAllIfNoConflicts,
+    ),
+    (
+        "RemoveSubIfSingleFiles",
+        RemoveSubType::RemoveSubIfSingleFiles,
+    ),
+    (
+        "RemoveSubIfNameMatches",
+        RemoveSubType::RemoveSubIfNameMatches,
+    ),
+];
+
 fn parse_rule(item: &XmlNode) -> Result<DatRule, SettingsError> {
     let mut rule = DatRule::default();
     for c in &item.children {
@@ -634,100 +702,22 @@ fn parse_rule(item: &XmlNode) -> Result<DatRule, SettingsError> {
             "DirKey" => rule.dir_key = c.text.replace('\\', "/"),
             "DirPath" => rule.dir_path = Some(c.text.replace('\\', "/")).filter(|p| !p.is_empty()),
             "Compression" => {
-                rule.compression = parse_enum(
-                    "Compression",
-                    &c.text,
-                    &[
-                        ("UnSet", FileType::UNSET),
-                        ("Dir", FileType::DIR),
-                        ("Zip", FileType::ZIP),
-                        ("SevenZip", FileType::SEVEN_ZIP),
-                        ("File", FileType::FILE),
-                        ("FileZip", FileType::FILE_ZIP),
-                        ("FileSevenZip", FileType::FILE_SEVEN_ZIP),
-                        ("FileOnly", FileType::FILE_ONLY),
-                    ],
-                )?
+                rule.compression = parse_enum("Compression", &c.text, COMPRESSION_NAMES)?
             }
             "CompressionOverrideDAT" => rule.compression_override_dat = parse_bool(c)?,
             "CompressionSub" => {
-                rule.compression_sub = parse_enum(
-                    "CompressionSub",
-                    &c.text,
-                    &[
-                        ("None", ZipStructure::NONE),
-                        ("ZipTrrnt", ZipStructure::ZIP_TRRNT),
-                        ("ZipTDC", ZipStructure::ZIP_TDC),
-                        ("ZipDTD", ZipStructure::ZIP_DTD),
-                        ("SevenZipTrrnt", ZipStructure::SEVEN_ZIP_TRRNT),
-                        ("ZipZSTD", ZipStructure::ZIP_ZSTD),
-                        ("ZipDTZ", ZipStructure::ZIP_DTZ),
-                        ("SevenZipSLZMA", ZipStructure::SEVEN_ZIP_SLZMA),
-                        ("SevenZipNLZMA", ZipStructure::SEVEN_ZIP_NLZMA),
-                        ("SevenZipSZSTD", ZipStructure::SEVEN_ZIP_SZSTD),
-                        ("SevenZipNZSTD", ZipStructure::SEVEN_ZIP_NZSTD),
-                    ],
-                )?
+                rule.compression_sub = parse_enum("CompressionSub", &c.text, COMPRESSION_SUB_NAMES)?
             }
             "ConvertWhileFixing" => rule.convert_while_fixing = parse_bool(c)?,
-            "Merge" => {
-                rule.merge = parse_enum(
-                    "Merge",
-                    &c.text,
-                    &[
-                        ("None", MergeType::None),
-                        ("Split", MergeType::Split),
-                        ("Merge", MergeType::Merge),
-                        ("NonMerged", MergeType::NonMerged),
-                        ("CHDsMerge", MergeType::ChdsMerge),
-                    ],
-                )?
-            }
-            "Filter" => {
-                rule.filter = parse_enum(
-                    "Filter",
-                    &c.text,
-                    &[
-                        ("KeepAll", FilterType::KeepAll),
-                        ("RomsOnly", FilterType::RomsOnly),
-                        ("CHDsOnly", FilterType::ChdsOnly),
-                    ],
-                )?
-            }
+            "Merge" => rule.merge = parse_enum("Merge", &c.text, MERGE_NAMES)?,
+            "Filter" => rule.filter = parse_enum("Filter", &c.text, FILTER_NAMES)?,
             "HeaderType" => {
-                rule.header_type = parse_enum(
-                    "HeaderType",
-                    &c.text,
-                    &[
-                        ("Optional", HeaderType::Optional),
-                        ("Headered", HeaderType::Headered),
-                        ("Headerless", HeaderType::Headerless),
-                    ],
-                )?
+                rule.header_type = parse_enum("HeaderType", &c.text, HEADER_TYPE_NAMES)?
             }
             "MergeOverrideDAT" => rule.merge_override_dat = parse_bool(c)?,
             "SingleArchive" => rule.single_archive = parse_bool(c)?,
             "SubDirType" => {
-                rule.sub_dir_type = parse_enum(
-                    "SubDirType",
-                    &c.text,
-                    &[
-                        ("KeepAllSubDirs", RemoveSubType::KeepAllSubDirs),
-                        ("RemoveAllSubDirs", RemoveSubType::RemoveAllSubDirs),
-                        (
-                            "RemoveAllIfNoConflicts",
-                            RemoveSubType::RemoveAllIfNoConflicts,
-                        ),
-                        (
-                            "RemoveSubIfSingleFiles",
-                            RemoveSubType::RemoveSubIfSingleFiles,
-                        ),
-                        (
-                            "RemoveSubIfNameMatches",
-                            RemoveSubType::RemoveSubIfNameMatches,
-                        ),
-                    ],
-                )?
+                rule.sub_dir_type = parse_enum("SubDirType", &c.text, SUB_DIR_TYPE_NAMES)?
             }
             "MultiDATDirOverride" => rule.multi_dat_dir_override = parse_bool(c)?,
             "UseDescriptionAsDirName" => rule.use_description_as_dir_name = parse_bool(c)?,
@@ -741,6 +731,8 @@ fn parse_rule(item: &XmlNode) -> Result<DatRule, SettingsError> {
     }
     Ok(rule)
 }
+
+mod write;
 
 #[cfg(test)]
 mod tests;
