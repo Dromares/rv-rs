@@ -1,6 +1,6 @@
 [package]
 name = "rv-cache"
-description = "Placeholder, nothing implemented yet: .Cache reader and writer"
+description = "Byte-compatible reader and writer for ROMVault .Cache v2/v3 files"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -2,16 +2,16 @@
 
 An unofficial, unaffiliated Linux rewrite of [RomVault](https://github.com/RomVault/RVWorld) in Rust: a ROM collection manager that reads DAT files, scans your ROM library and fixes it. It is translated from the RVWorld 3.8.0 source (see [NOTICE](NOTICE)). It is not made or endorsed by the RomVault authors.
 
-**Status: pre-alpha: nothing works yet.** This repository currently holds an empty Cargo workspace and CI.
+**Status: pre-alpha.** Only the cache layer works: `rv-core` and `rv-cache` read and write ROMVault `.Cache` v2/v3 files byte for byte. The `rv` and `rv-gtk` programs do nothing yet.
 
 ## Crates
 
-Planned responsibilities. Every crate is an empty placeholder today.
+Responsibilities. `rv-core` (cache data model only) and `rv-cache` are implemented; every other crate is an empty placeholder today.
 
 | Crate | Notes |
 |---|---|
-| `rv-core` | Data model; settings stay XML-compatible with `RomVault3cfg.xml` |
-| `rv-cache` | Byte-compatible `.Cache` v2/v3 read+write. **Fixes:** fsync, plus fall back to `.CacheBackup` on corruption instead of exiting |
+| `rv-core` | Data model (the cache tree is done); settings will stay XML-compatible with `RomVault3cfg.xml` |
+| `rv-cache` | Byte-compatible `.Cache` v2/v3 read+write. **Fixes:** temp file, fsync, then rename (the old file is kept as `.CacheBackup`); falls back to `.CacheBackup` on corruption instead of exiting |
 | `rv-dat` | CMP/XML/MAME/ROMCenter/DOS/JSON readers and writers |
 | `rv-scan` | CRC32/MD5/SHA1/SHA256, copier headers. **Fixes:** inverted MD5 alternate match, SNES/PCE header detection |
 | `rv-archive` | zip and byte-exact TorrentZip (own writer), 7z, CHD read |

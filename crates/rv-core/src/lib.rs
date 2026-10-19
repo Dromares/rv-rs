@@ -1,14 +1,16 @@
-//! `rv-core`: placeholder crate, no functionality yet.
+//! `rv-core`: the data model that the ROMVault `.Cache` file serializes.
+//!
+//! The model is deliberately *lossless*: every value that the cache stores is kept as
+//! read (enums are `u8`/`u32` newtypes so unknown values survive), so that
+//! `rv-cache` can write a parsed file back byte for byte. Derived state (`RepStatus`,
+//! `DirStatus`, parent pointers, ...) is not part of the model, because it is not
+//! stored in the file (`docs/cache-format.md` section 5.13).
+//!
+//! Citations like `rvFile.cs:405-509` refer to the RVWorld 3.8.0 source through
+//! `docs/cache-format.md` of the decompile notes, which is not part of this repository.
 
-/// Name of this crate, used by the placeholder test.
-pub const CRATE_NAME: &str = "rv-core";
+mod enums;
+mod model;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn crate_name_matches_package() {
-        assert_eq!(CRATE_NAME, env!("CARGO_PKG_NAME"));
-    }
-}
+pub use enums::*;
+pub use model::{MetaEntry, RvDat, RvFile, RvGame, RvTreeRow};
