@@ -5,7 +5,7 @@
 //! header bytes that the "alt" (header-stripped) hashes skip. The archive and CHD entries have
 //! `file_offset` 0: they set the header type but produce no alt hashes (`FileScan.cs:261`).
 
-use rv_core::HeaderFileType;
+use crate::enums::HeaderFileType;
 
 /// One row of the detector table (`FileHeaders.cs:151-168`).
 #[derive(Clone, Copy, Debug)]

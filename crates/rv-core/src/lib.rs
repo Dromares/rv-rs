@@ -1,4 +1,5 @@
-//! `rv-core`: the data model that the ROMVault `.Cache` file serializes.
+//! `rv-core`: the data model that the ROMVault `.Cache` file serializes, the database tree built
+//! on it, the `RepStatus` table and the settings.
 //!
 //! The model is deliberately *lossless*: every value that the cache stores is kept as
 //! read (enums are `u8`/`u32` newtypes so unknown values survive), so that
@@ -10,7 +11,19 @@
 //! `docs/cache-format.md` of the decompile notes, which is not part of this repository.
 
 mod enums;
+pub mod header;
 mod model;
+pub mod progress;
+mod rep_status;
+pub mod settings;
+pub mod sorters;
+mod tree;
 
 pub use enums::*;
 pub use model::{MetaEntry, RvDat, RvFile, RvGame, RvTreeRow};
+pub use rep_status::{baseline_status, status_check, ui_status, DirStatus, RepStatus};
+pub use settings::{
+    DatRule, DirMapping, FilterType, FixLevel, HeaderType, MergeType, RemoveSubType, ScanLevel,
+    Settings, SettingsError,
+};
+pub use tree::{Cx, DatUpdateStatus, Database, DbError, EFile};

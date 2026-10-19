@@ -146,11 +146,11 @@ impl<'a> Reader<'a> {
 
     /// `RvDat(BinaryReader)` (`RvDat.cs:66-77`).
     fn dat(&mut self) -> Result<RvDat, CacheError> {
-        Ok(RvDat {
-            time_stamp: self.i64()?,
-            dat_flags: DatFlags(self.u8()?),
-            entries: self.meta_entries()?,
-        })
+        Ok(RvDat::new(
+            self.i64()?,
+            DatFlags(self.u8()?),
+            self.meta_entries()?,
+        ))
     }
 
     fn node(&mut self, version: i32, is_root: bool, depth: usize) -> Result<RvFile, CacheError> {

@@ -15,8 +15,10 @@
 
 pub mod compare;
 pub mod hash;
-pub mod header;
 mod scan;
+
+/// Copier-header detection. The table lives in `rv-core`, because the DAT merge needs it too.
+pub use rv_core::header;
 
 pub use hash::{Digests, HashKinds, HashSet};
 pub use scan::{scan, AltDigests, ScanOptions, ScanResult};
