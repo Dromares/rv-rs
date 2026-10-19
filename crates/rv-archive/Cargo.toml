@@ -1,0 +1,11 @@
+[package]
+name = "rv-archive"
+description = "Placeholder, nothing implemented yet: zip, 7z and CHD handling"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+rv-core = { workspace = true }

@@ -1,0 +1,11 @@
+[package]
+name = "rv-dat"
+description = "Placeholder, nothing implemented yet: DAT readers and writers"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+rv-core = { workspace = true }

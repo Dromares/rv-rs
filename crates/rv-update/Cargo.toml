@@ -1,0 +1,10 @@
+[package]
+name = "rv-update"
+description = "Placeholder, nothing implemented yet: self-update from GitHub Releases"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]

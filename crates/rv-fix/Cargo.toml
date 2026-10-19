@@ -1,0 +1,12 @@
+[package]
+name = "rv-fix"
+description = "Placeholder, nothing implemented yet: fix finder and fixer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+rv-core = { workspace = true }
+rv-archive = { workspace = true }

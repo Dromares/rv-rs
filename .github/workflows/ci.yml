@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal --component rustfmt --no-self-update
+      - run: cargo fmt --all --check
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install GTK4 development files
+        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal --component clippy --no-self-update
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install GTK4 development files
+        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal --no-self-update
+      - run: cargo test --workspace

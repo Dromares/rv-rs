@@ -1,0 +1,11 @@
+[package]
+name = "rv-online"
+description = "Placeholder, nothing implemented yet: online services client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+rv-core = { workspace = true }
