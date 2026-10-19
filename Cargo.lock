@@ -806,7 +806,6 @@ dependencies = [
  "quick-xml",
  "rv-cache",
  "rv-core",
- "rv-scan",
 ]
 
 [[package]]
@@ -846,7 +845,9 @@ version = "0.0.0"
 dependencies = [
  "crc32fast",
  "md-5",
+ "rv-cache",
  "rv-core",
+ "rv-dat",
  "sha1",
  "sha2",
 ]

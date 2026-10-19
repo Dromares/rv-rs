@@ -16,4 +16,3 @@ flate2 = "1"
 [dev-dependencies]
 flate2 = "1"
 rv-cache = { workspace = true }
-rv-scan = { workspace = true }
