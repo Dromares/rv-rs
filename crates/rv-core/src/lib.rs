@@ -1,11 +1,28 @@
-//! `rv-core`: the data model that the ROMVault `.Cache` file serializes, the database tree built
-//! on it, the `RepStatus` table and the settings.
+//! `rv-core`: the ROMVault database tree and the things around it that both the DAT update and
+//! the scanner need.
 //!
-//! The model is deliberately *lossless*: every value that the cache stores is kept as
-//! read (enums are `u8`/`u32` newtypes so unknown values survive), so that
-//! `rv-cache` can write a parsed file back byte for byte. Derived state (`RepStatus`,
-//! `DirStatus`, parent pointers, ...) is not part of the model, because it is not
-//! stored in the file (`docs/cache-format.md` section 5.13).
+//! * [`RvFile`], [`RvDat`], [`RvGame`], [`RvTreeRow`]: the tree that the `.Cache` file
+//!   serializes. The model is *lossless*: every value that the cache stores is kept as read
+//!   (enums are `u8`/`u32` newtypes so unknown values survive), so that `rv-cache` can write a
+//!   parsed file back byte for byte. Three fields are in memory only and never written: the
+//!   [`RepStatus`] of a node (`docs/cache-format.md` section 5.13), the id that points a node at
+//!   its [`RvDat`] while the DAT lists change, and the `search_found` mark of a merge.
+//! * [`Database`]: a tree plus the DAT ids and their update status. [`Database::from_root`] links
+//!   a tree read from a cache; `rv-cache` has the functions that load and save one.
+//! * [`status_check`], [`RepStatus`], [`DirStatus`]: the statuses an item may have for its
+//!   `(FileType, DatStatus, GotStatus)`, and the per-directory counters
+//!   ([`RvFile::dir_status`]).
+//! * [`Settings`]: `RomVault3cfg.xml`: DAT rules, directory mappings, ignore patterns.
+//! * [`sorters`]: the name orders the cache depends on. [`header`]: the copier-header table.
+//! * [`progress`]: [`progress::ProgressSink`] and [`progress::CancelFlag`], which the long
+//!   operations take. There is no global state anywhere in the stack.
+//!
+//! How the crates fit (each step is a call, none needs the others' internals):
+//!
+//! ```text
+//! rv_cache::load_database  ->  rv_dat::update::update_dats  ->  rv_scan::db::scan_files
+//!                                                                  -> rv_cache::save_database
+//! ```
 //!
 //! Citations like `rvFile.cs:405-509` refer to the RVWorld 3.8.0 source through
 //! `docs/cache-format.md` of the decompile notes, which is not part of this repository.

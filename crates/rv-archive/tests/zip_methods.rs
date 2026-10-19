@@ -263,3 +263,38 @@ fn trailing_data_after_the_comment_is_reported() {
     let zip = ZipArchive::open(Cursor::new(z)).unwrap();
     assert!(zip.has_trailing_data());
 }
+
+#[test]
+fn without_crc_check_still_reads_an_entry_whose_crc_is_wrong() {
+    let good = fixture("method_stored.zip");
+    let mut z = good.clone();
+    z[30 + "sample.txt".len() + 100] ^= 0x01;
+
+    // Checked, the last read fails (see `a_flipped_data_byte_is_a_crc_error`).
+    let mut zip = ZipArchive::open(Cursor::new(z.clone())).unwrap();
+    let mut sink = Vec::new();
+    assert!(zip.open_entry(0).unwrap().read_to_end(&mut sink).is_err());
+
+    // Unchecked, every byte comes through, the bad one included: a scanner can hash them.
+    let mut zip = ZipArchive::open(Cursor::new(z)).unwrap();
+    let mut got = Vec::new();
+    zip.open_entry(0)
+        .unwrap()
+        .without_crc_check()
+        .read_to_end(&mut got)
+        .unwrap();
+    let mut want = sample_text();
+    want[100] ^= 0x01;
+    assert_eq!(got, want);
+    assert_ne!(crc32fast::hash(&got), crc32fast::hash(&sample_text()));
+
+    // An intact entry reads the same either way.
+    let mut zip = ZipArchive::open(Cursor::new(good)).unwrap();
+    let mut got = Vec::new();
+    zip.open_entry(0)
+        .unwrap()
+        .without_crc_check()
+        .read_to_end(&mut got)
+        .unwrap();
+    assert_eq!(got, sample_text());
+}

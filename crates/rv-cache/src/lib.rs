@@ -14,6 +14,11 @@
 //!   renames the temp file over the cache, so a failure part-way leaves the old cache.
 //!
 //! Reading returns what is on disk. ROMVault's load-time repairs are in [`fixups`].
+//!
+//! [`load_database`] and [`save_database`] are `DB.Read` and `DB.Write` for the working copy:
+//! they apply those repairs (optionally), link every node to its DAT, compute every `RepStatus`
+//! the way `DB.Read` does, and on the way out stamp the DAT positions back before the crash-safe
+//! [`save`].
 
 mod database;
 mod error;

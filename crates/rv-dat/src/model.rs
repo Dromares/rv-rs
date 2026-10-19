@@ -227,9 +227,9 @@ impl DatDir {
     }
 
     /// `ChildNameSearch` (`DatDir.cs:111-119`): the first child with this name and file type,
-    /// compared the way this directory's type sorts (so a `Dir` directory matches names
-    /// case-insensitively). `UNSET` directories are searched in DAT order, which finds the
-    /// same child as the sorted index does.
+    /// compared the way this directory's type sorts. The sort orders end in a case-sensitive
+    /// tie-break, so names that differ only by case are different children. `UNSET` directories
+    /// are searched in DAT order, which finds the same child as the sorted index does.
     pub fn child_name_search(&self, name: &str, file_type: FileType) -> Option<usize> {
         let probe = DatBase::new(name, file_type);
         if self.base.file_type == FileType::UNSET {
@@ -365,5 +365,68 @@ impl Default for DatHeader {
             not_zipped: false,
             base_dir: DatDir::new("", FileType::UNSET),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn file(name: &str) -> DatNode {
+        DatNode::File(DatFile::new(name))
+    }
+
+    fn names(d: &DatDir) -> Vec<&str> {
+        d.children.iter().map(DatNode::name).collect()
+    }
+
+    #[test]
+    fn an_unset_directory_keeps_dat_order() {
+        let mut d = DatDir::new("", FileType::UNSET);
+        assert_eq!(d.child_add(file("b")), 0);
+        assert_eq!(d.child_add(file("a")), 1);
+        assert_eq!(names(&d), ["b", "a"]);
+        assert_eq!(d.child_name_search("a", FileType::UNSET), Some(1));
+        assert_eq!(d.child_name_search("a", FileType::DIR), None);
+    }
+
+    #[test]
+    fn a_typed_directory_sorts_for_its_type_and_puts_equal_names_last() {
+        // Zip: TorrentZip order, ASCII case folded first.
+        let mut z = DatDir::new("z", FileType::ZIP);
+        for n in ["b", "A", "a", "a"] {
+            z.child_add(file(n));
+        }
+        assert_eq!(names(&z), ["A", "a", "a", "b"]);
+        // Dir: lower-cased ordinal, then ordinal.
+        let mut d = DatDir::new("d", FileType::DIR);
+        for n in ["B", "a", "A", "_x"] {
+            d.child_add(file(n));
+        }
+        assert_eq!(names(&d), ["_x", "A", "a", "B"]);
+
+        // A search uses the same order, including its final case-sensitive tie-break: names that
+        // differ only by case are two items in every kind of directory.
+        assert_eq!(d.child_name_search("B", FileType::UNSET), Some(3));
+        assert_eq!(d.child_name_search("a", FileType::UNSET), Some(2));
+        assert_eq!(d.child_name_search("b", FileType::UNSET), None);
+        assert_eq!(
+            d.child_name_search("B", FileType::DIR),
+            None,
+            "the type must match too"
+        );
+    }
+
+    #[test]
+    fn dir_search_add_finds_or_makes_one_directory() {
+        let mut d = DatDir::new("", FileType::DIR);
+        let a = d.dir_search_add("Sub", FileType::DIR, || DatDir::new("Sub", FileType::DIR));
+        let b = d.dir_search_add("Sub", FileType::DIR, || panic!("it exists"));
+        assert_eq!(a, b);
+        assert_eq!(d.children.len(), 1);
+        // Another case, or another type, is another item.
+        d.dir_search_add("SUB", FileType::DIR, || DatDir::new("SUB", FileType::DIR));
+        d.dir_search_add("Sub", FileType::ZIP, || DatDir::new("Sub", FileType::ZIP));
+        assert_eq!(d.children.len(), 3);
     }
 }

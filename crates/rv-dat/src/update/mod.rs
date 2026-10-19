@@ -322,7 +322,7 @@ pub fn update_dats(
     let (mut import_root, dat_count) = recursive_dat_tree(settings)?;
 
     if let Some(prefix) = &options.invalidate {
-        invalidate_dats(rom_vault, "RomVault", prefix, dat_count_hint(dat_count));
+        invalidate_dats(rom_vault, "RomVault", prefix);
     }
 
     let mut run = Run {
@@ -352,13 +352,9 @@ pub fn update_dats(
     Ok(run.report)
 }
 
-fn dat_count_hint(n: usize) -> usize {
-    n
-}
-
 /// `DatUpdate.InvalidateAllDATs` (`DatUpdate.cs:716-747`): make every DAT whose name starts
 /// with `prefix` look changed, so the next pass reads it again.
-fn invalidate_dats(dir: &mut RvFile, tree_name: &str, prefix: &str, _hint: usize) {
+fn invalidate_dats(dir: &mut RvFile, tree_name: &str, prefix: &str) {
     if !dir.is_directory() {
         return;
     }
@@ -379,7 +375,7 @@ fn invalidate_dats(dir: &mut RvFile, tree_name: &str, prefix: &str, _hint: usize
     }
     for child in &mut dir.children {
         let child_tree = rv_core::settings::path_combine(tree_name, &child.name);
-        invalidate_dats(child, &child_tree, prefix, 0);
+        invalidate_dats(child, &child_tree, prefix);
     }
 }
 
@@ -567,13 +563,10 @@ impl Run<'_> {
         }
     }
 
-    /// `DatUpdate.UpdateDirs` (`DatUpdate.cs:294-399`). `cx_parent` is the tree name of
-    /// `db_dir`'s parent.
+    /// `DatUpdate.UpdateDirs` (`DatUpdate.cs:294-399`). `parent_tree` is the tree name of
+    /// `db_dir`'s parent. After a cancel the walk goes on without reading any more DATs, so every
+    /// directory is claimed again and the database stays consistent.
     fn update_dirs(&mut self, db_dir: &mut RvFile, disk: &mut ImportDir, parent_tree: &str) {
-        if self.cancel.is_cancelled() {
-            self.report.cancelled = true;
-            return;
-        }
         let settings = self.settings;
         let cx = Cx::new(settings, parent_tree);
         self.add_the_dats_in_this_dir(db_dir, disk, &cx);

@@ -479,3 +479,48 @@ fn bcj2_and_aes_are_typed_unsupported_errors() {
         "{err}"
     );
 }
+
+#[test]
+fn for_each_entry_with_can_leave_the_crc_unchecked() {
+    // `seven_copy.7z` stores the data as it is: flip a byte of the first file.
+    let mut bytes = fixture("seven_copy.7z");
+    let probe = sample_text();
+    let at = bytes
+        .windows(40)
+        .position(|w| w == &probe[..40])
+        .expect("the copy method stores a.txt verbatim");
+    bytes[at + 5] ^= 0x01;
+
+    let mut checked = SevenZipArchive::open(Cursor::new(bytes.clone())).unwrap();
+    assert!(
+        matches!(
+            checked.for_each_entry(|_, r| {
+                std::io::copy(r, &mut std::io::sink()).map_err(rv_archive::into_archive_error)?;
+                Ok(())
+            }),
+            Err(ArchiveError::CrcMismatch { .. })
+        ),
+        "the CRC is checked by default"
+    );
+
+    let mut unchecked = SevenZipArchive::open(Cursor::new(bytes)).unwrap();
+    let mut seen = Vec::new();
+    unchecked
+        .for_each_entry_with(false, |e, r| {
+            let mut buf = Vec::new();
+            r.read_to_end(&mut buf)
+                .map_err(rv_archive::into_archive_error)?;
+            seen.push((e.name.clone(), buf));
+            Ok(())
+        })
+        .unwrap();
+    let a = seen.iter().find(|(n, _)| n == "a.txt").unwrap();
+    let mut want = sample_text();
+    want[5] ^= 0x01;
+    assert_eq!(
+        a.1, want,
+        "the bad byte comes through, nothing else changes"
+    );
+    let b = seen.iter().find(|(n, _)| n == "b.bin").unwrap();
+    assert_eq!(b.1.len(), 256 * 40);
+}
