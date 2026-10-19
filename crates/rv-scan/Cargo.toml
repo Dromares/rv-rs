@@ -1,6 +1,6 @@
 [package]
 name = "rv-scan"
-description = "File hashing (CRC32/MD5/SHA1/SHA256 in one pass) and copier-header detection for ROMVault"
+description = "File hashing (CRC32/MD5/SHA1/SHA256 in one pass), copier-header detection and the directory scan into the database for ROMVault"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
