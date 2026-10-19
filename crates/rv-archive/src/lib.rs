@@ -1,14 +1,25 @@
-//! `rv-archive`: placeholder crate, no functionality yet.
+//! `rv-archive`: zip (with a byte-exact TorrentZip writer), 7z and CHD.
+//!
+//! The formats are specified in `docs/archives-and-rvio.md` and `docs/codecs.md` of the decompile
+//! notes (not part of this repository); comments cite the RVWorld 3.8.0 source lines through
+//! those documents. What this crate guarantees:
+//!
+//! * corrupt or truncated input is an [`ArchiveError`], never a panic;
+//! * entry data is read as a stream and its CRC32 and length are checked against the headers;
+//! * a method or codec that is not decoded is [`ArchiveError::UnsupportedCompression`], like
+//!   `ZipUnsupportedCompression` in ROMVault;
+//! * writers write into the stream they are given and never touch an existing file by name.
+//!   [`AtomicFile`] is the temp-file, `fsync`, rename step; the caller wires it up (the fixer does
+//!   that in Phase 5).
+//!
+//! `rv-archive` does not depend on `rv-dat` or `rv-scan`.
 
-/// Name of this crate, used by the placeholder test.
-pub const CRATE_NAME: &str = "rv-archive";
+mod atomic;
+pub mod cp437;
+pub mod deflate;
+mod error;
+pub mod sort;
+pub mod zip;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn crate_name_matches_package() {
-        assert_eq!(CRATE_NAME, env!("CARGO_PKG_NAME"));
-    }
-}
+pub use atomic::AtomicFile;
+pub use error::{ArchiveError, ChdError, Result, StructureError};
