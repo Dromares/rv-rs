@@ -35,6 +35,15 @@ impl<'a> CheckedReader<'a> {
         }
     }
 
+    /// Keep checking the length but not the CRC32, so a caller that wants to hash the data itself
+    /// still gets every byte of an entry whose CRC is wrong. ROMVault's scanner does this: it
+    /// hashes the entry, compares with the header afterwards and calls the entry corrupt
+    /// (`FileScan.scanAFileInAnArchive`), keeping the CRC it computed.
+    pub fn without_crc_check(mut self) -> CheckedReader<'a> {
+        self.expected_crc = None;
+        self
+    }
+
     fn fail(e: ArchiveError) -> io::Error {
         io::Error::new(io::ErrorKind::InvalidData, e)
     }

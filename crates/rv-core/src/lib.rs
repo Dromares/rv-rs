@@ -17,6 +17,7 @@ pub mod progress;
 mod rep_status;
 pub mod settings;
 pub mod sorters;
+pub mod time;
 mod tree;
 
 pub use enums::*;

@@ -3,32 +3,12 @@
 
 use std::fs;
 use std::path::Path;
-use std::time::UNIX_EPOCH;
 
 use rv_core::sorters::{compare_dat_name, directory_name_compare_case};
+use rv_core::time::ticks_of;
 use rv_core::{DatFlags, HeaderType, RemoveSubType, Settings};
 
 use crate::DatHeader;
-
-/// Ticks between 0001-01-01 and 1970-01-01 (`DateTime.UnixEpoch.Ticks`).
-const UNIX_EPOCH_TICKS: i64 = 621_355_968_000_000_000;
-
-/// A file's last-write time as .NET UTC ticks (`FileInfo.LastWriteTimeUtc.Ticks`), 0 when it
-/// cannot be read (`RVIO.cs:74`).
-pub fn ticks_of(meta: &fs::Metadata) -> i64 {
-    let Ok(modified) = meta.modified() else {
-        return 0;
-    };
-    match modified.duration_since(UNIX_EPOCH) {
-        Ok(d) => {
-            UNIX_EPOCH_TICKS + (d.as_secs() as i64) * 10_000_000 + i64::from(d.subsec_nanos() / 100)
-        }
-        Err(e) => {
-            let d = e.duration();
-            UNIX_EPOCH_TICKS - (d.as_secs() as i64) * 10_000_000 - i64::from(d.subsec_nanos() / 100)
-        }
-    }
-}
 
 /// `DatImportDat`: one DAT file on disk and what the rule of its directory says about it.
 #[derive(Clone, Debug)]
@@ -188,18 +168,6 @@ fn walk(settings: &Settings, dir: &mut ImportDir, dat_tree: &str) -> Result<usiz
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn ticks_of_the_unix_epoch_and_a_known_time() {
-        assert_eq!(UNIX_EPOCH_TICKS, 621_355_968_000_000_000);
-        // 2024-09-01 03:52:00 UTC, the NES DAT of the board's collection: ticks as the cache
-        // stores them (`DatRoot/Console/NES/Roms/...` has 638607595200000000).
-        let secs = 1_725_162_720i64;
-        assert_eq!(
-            UNIX_EPOCH_TICKS + secs * 10_000_000,
-            638_607_595_200_000_000
-        );
-    }
 
     #[test]
     fn dat_names() {

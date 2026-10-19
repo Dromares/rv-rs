@@ -2,8 +2,9 @@
 //! does for loose files (`FileScanner/FileScan.cs` `CheckSumRead`, `FileScanner/FileHeaders.cs`,
 //! `RomVaultCore/Scanner/Compare.cs`).
 //!
-//! The crate works on any [`std::io::Read`]. Looking inside zip/7z/CHD containers is a later
-//! phase and this crate does not depend on an archive crate.
+//! The hashing works on any [`std::io::Read`]. [`db`] is the directory scan that uses it: it walks
+//! the files on disk against the database tree, opens zips, 7z archives and CHDs through
+//! `rv-archive`, and decides what each item's `GotStatus` is.
 //!
 //! Two defects of ROMVault 3.8.0 are fixed here on purpose (README section 10):
 //!
@@ -14,6 +15,7 @@
 //!   3.8.0 scanner never sees them). [`MAX_HEADER_PROBE`] is 513.
 
 pub mod compare;
+pub mod db;
 pub mod hash;
 mod scan;
 

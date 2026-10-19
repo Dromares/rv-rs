@@ -50,7 +50,7 @@ use crate::clean::{self, CleanRule};
 use crate::varfix;
 use crate::DatNode;
 
-pub use import::{recursive_dat_tree, ticks_of, ImportDat, ImportDir, ImportError};
+pub use import::{recursive_dat_tree, ImportDat, ImportDir, ImportError};
 pub use node::dat_merge_compare;
 
 /// What to do beyond a plain update.

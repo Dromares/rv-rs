@@ -1039,6 +1039,7 @@ version = "0.0.0"
 dependencies = [
  "crc32fast",
  "md-5 0.10.6",
+ "rv-archive",
  "rv-cache",
  "rv-core",
  "rv-dat",
