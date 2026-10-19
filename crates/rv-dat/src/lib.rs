@@ -28,6 +28,7 @@
 //! * `.datz` files with a zstd stream (gzip method 93, `Compress/gZip/gZip.cs:324-333`) are
 //!   not supported; plain deflate gzip is.
 
+pub mod clean;
 mod cmp;
 mod dos;
 mod error;
@@ -35,6 +36,7 @@ mod model;
 mod romcenter;
 mod text;
 mod time;
+pub mod update;
 pub mod varfix;
 mod write;
 mod xml;

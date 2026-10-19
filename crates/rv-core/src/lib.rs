@@ -26,4 +26,4 @@ pub use settings::{
     DatRule, DirMapping, FilterType, FixLevel, HeaderType, MergeType, RemoveSubType, ScanLevel,
     Settings, SettingsError,
 };
-pub use tree::{Cx, DatUpdateStatus, Database, DbError, EFile};
+pub use tree::{Cx, DatTable, DatUpdateStatus, Database, DbError, EFile};

@@ -618,8 +618,34 @@ impl fmt::Display for DbError {
 
 impl std::error::Error for DbError {}
 
-/// The tree plus the state that is not in it: which DAT is which, and whether each was matched
-/// with a file on disk during the current DAT update.
+/// Which DAT is which, and whether each was matched with a file on disk during the current
+/// DAT update (`RvDat.Status`, kept beside the tree because the tree owns the [`RvDat`]s).
+#[derive(Clone, Debug)]
+pub struct DatTable {
+    status: HashMap<u32, DatUpdateStatus>,
+    next_uid: u32,
+}
+
+impl DatTable {
+    /// A fresh DAT id.
+    pub fn new_uid(&mut self) -> u32 {
+        let uid = self.next_uid;
+        self.next_uid += 1;
+        uid
+    }
+
+    /// The update status of a DAT; [`DatUpdateStatus::Delete`] until something sets it, like a
+    /// DAT read from a cache (`RvDat.cs:61,66-78`).
+    pub fn status(&self, uid: u32) -> DatUpdateStatus {
+        self.status.get(&uid).copied().unwrap_or_default()
+    }
+
+    pub fn set_status(&mut self, uid: u32, status: DatUpdateStatus) {
+        self.status.insert(uid, status);
+    }
+}
+
+/// The tree plus the state that is not in it.
 ///
 /// `DB.DirRoot` and `DatUpdateStatus` in ROMVault; there they are static.
 #[derive(Clone, Debug)]
@@ -627,8 +653,7 @@ pub struct Database {
     /// The unnamed root. Child 0 is `RomVault`, the others are ToSort directories
     /// (cache section 1.5).
     pub root: RvFile,
-    dat_status: HashMap<u32, DatUpdateStatus>,
-    next_dat_uid: u32,
+    pub dats: DatTable,
 }
 
 impl Database {
@@ -645,8 +670,10 @@ impl Database {
         link(&mut root, &[], &mut next, "")?;
         Ok(Database {
             root,
-            dat_status: HashMap::new(),
-            next_dat_uid: next,
+            dats: DatTable {
+                status: HashMap::new(),
+                next_uid: next,
+            },
         })
     }
 
@@ -654,22 +681,6 @@ impl Database {
     /// Call it after any change to the DATs and before taking `root` to a cache file.
     pub fn stamp_dat_indexes(&mut self) -> Result<(), DbError> {
         stamp(&mut self.root, &[], "")
-    }
-
-    /// A fresh DAT id.
-    pub fn new_dat_uid(&mut self) -> u32 {
-        let uid = self.next_dat_uid;
-        self.next_dat_uid += 1;
-        uid
-    }
-
-    /// The update status of a DAT; [`DatUpdateStatus::Delete`] until something sets it.
-    pub fn dat_update_status(&self, uid: u32) -> DatUpdateStatus {
-        self.dat_status.get(&uid).copied().unwrap_or_default()
-    }
-
-    pub fn set_dat_update_status(&mut self, uid: u32, status: DatUpdateStatus) {
-        self.dat_status.insert(uid, status);
     }
 
     /// `RepairStatus.ReportStatusReset(DB.DirRoot)`: every item gets its baseline `RepStatus`.

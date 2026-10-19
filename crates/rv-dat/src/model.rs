@@ -4,6 +4,7 @@
 //! empty. Nothing in the readers, the writers or the cleaning code distinguishes the two
 //! except `string.IsNullOrWhiteSpace` style tests, which treat them alike.
 
+use rv_core::sorters;
 use rv_core::{DatStatus, FileType, HeaderFileType, MiaStatus};
 
 /// `DatBase`, `DatStore/DatBase.cs:5-25`: what a file and a directory share.
@@ -163,19 +164,112 @@ impl DatDir {
         &self.base.name
     }
 
-    /// `DatDir.ChildAdd` for an `UNSET` directory: appends, returns the index
-    /// (`DatDir.cs:60-69`).
+    /// `DatDir.ChildAdd` (`DatDir.cs:55-75`): an `UNSET` directory appends (DAT order); a
+    /// directory with a type keeps its children sorted for that type and inserts after any
+    /// children with an equal name and type. Returns the index.
     pub fn child_add(&mut self, node: DatNode) -> usize {
-        self.children.push(node);
-        self.children.len() - 1
+        if self.base.file_type == FileType::UNSET {
+            self.children.push(node);
+            return self.children.len() - 1;
+        }
+        let index = self.insert_index(node.base());
+        self.children.insert(index, node);
+        index
     }
 
-    /// `DatDir.ChildNameSearch` on an `UNSET` directory (`DatDir.cs:111-119`, `:239`): the
-    /// first child with this exact name *and file type*. Returns its insertion index.
+    /// `DatDir.SortCompareName` (`DatDir.cs:201-240`) for this directory's type.
+    pub(crate) fn sort_compare(&self, a: &DatBase, b: &DatBase) -> i32 {
+        let res = match self.base.file_type {
+            FileType::UNSET => sorters::string_compare(&a.name, &b.name),
+            FileType::DIR => sorters::directory_name_compare_case(&a.name, &b.name),
+            FileType::ZIP => sorters::trrntzip_string_compare_case(&a.name, &b.name),
+            FileType::SEVEN_ZIP => sorters::trrnt_7zip_string_compare(&a.name, &b.name),
+            // ROMVault throws "Invalid directory compare type"; a name compare is the closest
+            // thing that does not abort the DAT.
+            _ => sorters::string_compare(&a.name, &b.name),
+        };
+        if res != 0 {
+            return res;
+        }
+        i32::from(a.file_type.0.cmp(&b.file_type.0) as i8)
+    }
+
+    /// `ChildNameBinarySearch(item, useIndex: false, findFirst: false)` on a sorted directory
+    /// (`DatDir.cs:129-199`): the index after the last child that compares equal, or the
+    /// insertion point.
+    fn insert_index(&self, item: &DatBase) -> usize {
+        let (mut bottom, mut top, mut mid, mut res) = (0usize, self.children.len(), 0usize, -1i32);
+        while bottom < top && res != 0 {
+            mid = (bottom + top) / 2;
+            res = self.sort_compare(item, self.children[mid].base());
+            if res < 0 {
+                top = mid;
+            } else if res > 0 {
+                bottom = mid + 1;
+            }
+        }
+        let mut index = mid;
+        if res == 0 {
+            let mut res1 = 0;
+            while index + 1 < self.children.len() && res1 == 0 {
+                res1 = self.sort_compare(item, self.children[index + 1].base());
+                if res1 == 0 {
+                    index += 1;
+                }
+            }
+            if res1 == 0 {
+                index += 1;
+            }
+        } else if res > 0 {
+            index += 1;
+        }
+        index
+    }
+
+    /// `ChildNameSearch` (`DatDir.cs:111-119`): the first child with this name and file type,
+    /// compared the way this directory's type sorts (so a `Dir` directory matches names
+    /// case-insensitively). `UNSET` directories are searched in DAT order, which finds the
+    /// same child as the sorted index does.
     pub fn child_name_search(&self, name: &str, file_type: FileType) -> Option<usize> {
-        self.children
-            .iter()
-            .position(|c| c.name() == name && c.base().file_type == file_type)
+        let probe = DatBase::new(name, file_type);
+        if self.base.file_type == FileType::UNSET {
+            return self
+                .children
+                .iter()
+                .position(|c| c.name() == name && c.base().file_type == file_type);
+        }
+        let (mut bottom, mut top, mut mid, mut res) = (0usize, self.children.len(), 0usize, -1i32);
+        while bottom < top && res != 0 {
+            mid = (bottom + top) / 2;
+            res = self.sort_compare(&probe, self.children[mid].base());
+            if res < 0 {
+                top = mid;
+            } else if res > 0 {
+                bottom = mid + 1;
+            }
+        }
+        if res != 0 {
+            return None;
+        }
+        let mut index = mid;
+        while index > 0 && self.sort_compare(&probe, self.children[index - 1].base()) == 0 {
+            index -= 1;
+        }
+        Some(index)
+    }
+
+    /// `ChildNameSearchAdd` for a directory child: the index of the existing directory called
+    /// `name` of type `file_type`, or of a new empty one made by `make` and added.
+    pub fn dir_search_add(
+        &mut self,
+        name: &str,
+        file_type: FileType,
+        make: impl FnOnce() -> DatDir,
+    ) -> usize {
+        match self.child_name_search(name, file_type) {
+            Some(i) if matches!(self.children[i], DatNode::Dir(_)) => i,
+            _ => self.child_add(DatNode::Dir(make())),
+        }
     }
 
     /// Number of game directories (those with a [`DatGame`]) in this subtree.
