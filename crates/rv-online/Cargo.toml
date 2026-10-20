@@ -29,3 +29,5 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 
 [dev-dependencies]
 rv-cache = { workspace = true }
+# The integration tests use the mock; this turns the feature on for them (and only for tests).
+rv-online = { path = ".", features = ["mock"] }

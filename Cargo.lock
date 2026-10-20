@@ -1381,6 +1381,7 @@ dependencies = [
  "rv-archive",
  "rv-cache",
  "rv-core",
+ "rv-online",
  "serde",
  "serde_json",
  "sha1 0.11.0",
