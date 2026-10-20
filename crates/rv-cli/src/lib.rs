@@ -6,6 +6,8 @@
 //! * `datvault` and `mia update` talk to the RomVault service, over `https://` unless the online
 //!   settings (`~/.config/rv-rs/online.conf`) say `allow_plain_http=1`. The DatVault key is read
 //!   from those settings and is never printed.
+//! * `update check` and `update install` look at GitHub Releases; nothing is replaced unless you
+//!   say yes (or pass `--yes`), and the download must match the release's `SHA256SUMS`.
 //! * Every path is given. None has a default that points at the library, and a run refuses to
 //!   start when a path is inside `/mnt/HHD16TB/` unless `--allow-live-library` is given
 //!   ([`guard`]).
@@ -16,8 +18,9 @@ pub mod args;
 mod commands;
 pub mod guard;
 mod online;
+mod update;
 
-use std::io::Write;
+use std::io::{BufRead, Write};
 
 use args::{parse, Parsed, USAGE};
 
@@ -35,9 +38,24 @@ pub mod exit {
 
 /// Run the program. `argv` is the command line without the program name.
 pub fn run(argv: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    run_with_input(argv, &mut std::io::stdin().lock(), out, err)
+}
+
+/// [`run`] with the place answers come from (`rv update install` asks before it replaces the
+/// program).
+pub fn run_with_input(
+    argv: &[String],
+    input: &mut dyn BufRead,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> i32 {
     let args = match parse(argv) {
         Ok(Parsed::Help) => {
             let _ = write!(out, "{USAGE}");
+            return exit::OK;
+        }
+        Ok(Parsed::Version) => {
+            let _ = writeln!(out, "rv {}", rv_update::current_version());
             return exit::OK;
         }
         Ok(Parsed::Run(a)) => a,
@@ -46,5 +64,8 @@ pub fn run(argv: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
             return exit::USAGE;
         }
     };
+    if args.command == "update" {
+        return update::update(&args, input, out, err);
+    }
     commands::execute(&args, out, err)
 }

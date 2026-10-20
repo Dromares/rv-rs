@@ -24,6 +24,7 @@ use rv_online::mia::{self, ApplyOptions, Prepared};
 use rv_online::salt::configured_source;
 use rv_online::Client;
 use rv_scan::db::{scan_files, ScanError, ScanReport, ScanRequest, ScanTarget};
+use rv_update::{Installed, Product, Update, UpdateConfig};
 
 /// Why Find Fixes and Fix are switched off.
 pub const FIX_PENDING: &str =
@@ -341,6 +342,58 @@ pub fn check_key(online: &OnlineConfig) -> String {
         Ok(false) => "The DatVault key is not valid.".to_owned(),
         Err(e) => format!("The key could not be checked: {e}"),
     }
+}
+
+/// Look for a newer release (the "Check for updates" menu item and the check at start). Says
+/// nothing about installing: that is [`install_update`], after the user confirmed.
+pub fn check_for_updates(update_conf: &Path) -> Result<rv_update::Check, String> {
+    let cfg = UpdateConfig::load(update_conf);
+    rv_update::check(&cfg, &rv_update::current_version()).map_err(|e| e.to_string())
+}
+
+/// Does the update setting ask for a check when the window opens?
+pub fn check_on_startup(update_conf: &Path) -> bool {
+    UpdateConfig::load(update_conf).check_on_startup
+}
+
+/// The words of the question put to the user before anything is downloaded.
+pub fn update_question(up: &Update, target: &Path) -> (String, String) {
+    (
+        format!("Version {} is available", up.version),
+        format!(
+            "You have {}. If you go on, rv-gtk downloads {} and SHA256SUMS from release {}, \
+             refuses to continue unless the file matches SHA256SUMS, and replaces {}. The old \
+             program is kept as {}.\n\nRelease page: {}",
+            rv_update::current_version(),
+            Product::RvGtk
+                .asset_name()
+                .unwrap_or_else(|| "the file for this system".to_owned()),
+            up.tag,
+            target.display(),
+            rv_update::install::backup_path(target).display(),
+            up.page
+        ),
+    )
+}
+
+/// Download, check and install the release over `target` (the running `rv-gtk`). Only called
+/// after the user said yes.
+pub fn install_update(up: &Update, target: &Path) -> Result<Installed, String> {
+    let Some(asset) = Product::RvGtk.asset_name() else {
+        return Err(format!(
+            "There is no build of the release for this system. Download it from {}",
+            up.page
+        ));
+    };
+    rv_update::install(up, &asset, target, &|_| {}).map_err(|e| match e {
+        rv_update::Error::NotWritable { dir, why } => format!(
+            "You cannot write in {} ({why}), so the update was not installed, and rv-gtk does not ask for more rights. Version {} is at {}: download it, check it against SHA256SUMS and copy it into place yourself.",
+            dir.display(),
+            up.version,
+            up.page
+        ),
+        other => format!("The update was not installed: {other}"),
+    })
 }
 
 fn online_err(e: rv_online::Error) -> EngineError {

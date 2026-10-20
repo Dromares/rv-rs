@@ -21,6 +21,7 @@ use super::pickers::{pick_existing_file, pick_folder, pick_new_file};
 use crate::engine;
 use crate::prefs::Prefs;
 use rv_online::config::OnlineConfig;
+use rv_update::UpdateConfig;
 
 type Shared = Rc<RefCell<Settings>>;
 
@@ -881,11 +882,51 @@ fn online_page(window: &gtk4::Window, o: &SharedOnline, path: &std::path::Path) 
     g
 }
 
+type SharedUpdate = Rc<RefCell<UpdateConfig>>;
+
+/// The Updates page: the two switches in `update.conf`. Both are off until the user turns them
+/// on, and neither installs anything: an update is always asked about first.
+fn updates_page(u: &SharedUpdate, path: &std::path::Path) -> gtk4::Grid {
+    let g = grid();
+    let cfg = u.borrow().clone();
+    let mut row = 0;
+    let mut put = |text: &str, w: gtk4::Widget| {
+        labelled(&g, row, text, &w);
+        row += 1;
+    };
+    let startup = gtk4::CheckButton::with_label("Look for a newer release when rv-gtk starts");
+    startup.set_active(cfg.check_on_startup);
+    startup.connect_toggled({
+        let u = u.clone();
+        move |c| u.borrow_mut().check_on_startup = c.is_active()
+    });
+    put("", startup.upcast());
+    let pre = gtk4::CheckButton::with_label("Offer pre-releases too");
+    pre.set_active(cfg.include_prereleases);
+    pre.connect_toggled({
+        let u = u.clone();
+        move |c| u.borrow_mut().include_prereleases = c.is_active()
+    });
+    put("", pre.upcast());
+    let note = gtk4::Label::new(Some(&format!(
+        "Releases are read from GitHub (Dromares/rv-rs), anonymously. A newer release is only \
+         installed after you confirm, and only if it matches the release's SHA256SUMS. Help > Check \
+         for updates does it by hand. Saved in {}.",
+        path.display()
+    )));
+    note.set_xalign(0.0);
+    note.set_wrap(true);
+    note.add_css_class("dim-label");
+    put("", note.upcast());
+    g
+}
+
 pub fn show(
     parent: &gtk4::Window,
     settings: &Settings,
     prefs: &Prefs,
     online_path: &std::path::Path,
+    update_path: &std::path::Path,
     page: u32,
     apply: impl Fn(Settings, Prefs) + 'static,
 ) {
@@ -935,9 +976,15 @@ pub fn show(
         &online_page(&window, &o, online_path),
         Some(&gtk4::Label::new(Some("Online"))),
     );
+    let u: SharedUpdate = Rc::new(RefCell::new(UpdateConfig::load(update_path)));
+    book.append_page(
+        &updates_page(&u, update_path),
+        Some(&gtk4::Label::new(Some("Updates"))),
+    );
     book.set_vexpand(true);
     book.set_current_page(Some(page));
     let online_path = online_path.to_path_buf();
+    let update_path = update_path.to_path_buf();
 
     let error = gtk4::Label::new(None);
     error.set_xalign(0.0);
@@ -981,6 +1028,7 @@ pub fn show(
                 .retain(|m| !m.dir_path.trim().is_empty());
             match validate(&mut settings, &prefs)
                 .and_then(|()| o.borrow().save(&online_path).map_err(|e| e.to_string()))
+                .and_then(|()| u.borrow().save(&update_path).map_err(|e| e.to_string()))
             {
                 Ok(()) => {
                     apply(settings, prefs);

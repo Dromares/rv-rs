@@ -1,10 +1,29 @@
 [package]
 name = "rv-update"
-description = "Placeholder, nothing implemented yet: self-update from GitHub Releases"
+description = "Self-update from GitHub Releases: version check, sha256-verified download, install with a backup"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[features]
+# A stand-in for the GitHub Releases API on 127.0.0.1 for the tests of this crate and of
+# rv-cli. Nothing in a release build needs it.
+mock = []
+
 [dependencies]
+sha2 = "0.11"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The same HTTP and TLS stack rv-online uses; ureq needs a crypto provider and ring is the one
+# with a permissive licence (Apache-2.0 AND ISC).
+ureq = { version = "3", default-features = false, features = ["rustls-no-provider", "platform-verifier"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+
+[dev-dependencies]
+rv-update = { path = ".", features = ["mock"] }
+
+[[example]]
+name = "mock_releases"
+required-features = ["mock"]

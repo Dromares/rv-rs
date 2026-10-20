@@ -1367,6 +1367,7 @@ dependencies = [
  "rv-dat",
  "rv-online",
  "rv-scan",
+ "rv-update",
 ]
 
 [[package]]
@@ -1406,6 +1407,14 @@ dependencies = [
 [[package]]
 name = "rv-update"
 version = "0.0.0"
+dependencies = [
+ "rustls",
+ "rv-update",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "ureq",
+]
 
 [[package]]
 name = "same-file"

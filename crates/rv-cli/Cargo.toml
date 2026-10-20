@@ -20,6 +20,7 @@ ctrlc = "3"
 
 [dev-dependencies]
 rv-online = { workspace = true, features = ["mock"] }
+rv-update = { workspace = true, features = ["mock"] }
 
 [[bin]]
 name = "rv"
