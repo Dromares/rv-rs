@@ -634,6 +634,10 @@ fn find_fixes_gives_the_plan_and_writes_nothing() {
     let t = Tmp::new("find");
     let (s, mut db) = fixable(&t);
     let cache_before = fs::read(t.path("test.Cache")).unwrap();
+    // The update and the scan above saved twice, so a backup of the first state exists. A save
+    // during Find Fixes would rotate it (the cache bytes alone cannot tell: a re-saved cache
+    // that did not change is byte-for-byte the same).
+    let backup_before = fs::read(t.path("test.CacheBackup")).expect("a backup exists");
     let out = engine::run_task(
         &mut db,
         &s,
@@ -675,6 +679,10 @@ fn find_fixes_gives_the_plan_and_writes_nothing() {
         fs::read(t.path("test.Cache")).unwrap(),
         cache_before,
         "cache untouched"
+    );
+    assert!(
+        fs::read(t.path("test.CacheBackup")).unwrap() == backup_before,
+        "a save rotated the backup"
     );
     assert!(t.path("RomRoot/Console/NES/Roms/Alpha/bee.rom").exists());
     assert!(!t.path("RomRoot/Console/NES/Roms/Alpha/b.rom").exists());
