@@ -24,7 +24,7 @@ use rv_core::progress::{CancelFlag, ProgressEvent, ProgressSink};
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::client::{Client, Group};
-use crate::error::{Error, Result};
+use crate::error::{scrub, Error, Result};
 use crate::fsio::write_atomic;
 
 /// The largest group listing, DAT or cue accepted once decompressed.
@@ -409,7 +409,7 @@ impl<'a> Vault<'a> {
     pub fn group_info(&self, group: &str) -> Result<Option<Vec<DatInfo>>> {
         match self.client.get_dv_group_info_v2(self.key, group)? {
             None => Ok(None),
-            Some(b) => decode_group_info(&b),
+            Some(b) => decode_group_info(&b).map_err(|e| scrub_bad_response(e, self.key)),
         }
     }
 
@@ -582,7 +582,7 @@ impl<'a> Vault<'a> {
             .client
             .get_dv_dat(self.key, &new.group, &new.system, &new.dat_url)?
             .ok_or_else(|| Error::BadResponse("the service has no such DAT".into()))?;
-        let dat_bytes = extract_dat(&zip, &name)?;
+        let dat_bytes = extract_dat(&zip, &name).map_err(|e| scrub_bad_response(e, self.key))?;
 
         // Only now is anything replaced.
         if let Some(o) = &old {
@@ -636,6 +636,15 @@ fn move_to_old(path: &Path) -> Result<()> {
     }
     std::fs::rename(path, &old)
         .map_err(|e| Error::Io(format!("cannot rename {}: {e}", path.display())))
+}
+
+/// A decoder's complaint about the payload can quote the payload (a `serde_json` type error
+/// quotes the value), so a server could echo the key in it: take the key out.
+fn scrub_bad_response(e: Error, key: &str) -> Error {
+    match e {
+        Error::BadResponse(m) => Error::BadResponse(scrub(&m, &[key])),
+        e => e,
+    }
 }
 
 /// The entry `name` of the zip `bytes`.
@@ -844,6 +853,34 @@ mod tests {
             decode_group_info(&not_json),
             Err(Error::BadResponse(_))
         ));
+    }
+
+    #[test]
+    fn a_decode_error_that_quotes_the_key_is_scrubbed() {
+        let f = fx();
+        // serde_json quotes a string where a number was expected.
+        let payload = format!(r#"[{{"datROMsSize":"{KEY}"}}]"#);
+        assert!(decode_group_info(&compress_to_vec(
+            payload.as_bytes(),
+            CompressionLevel::Uncompressed
+        ))
+        .unwrap_err()
+        .to_string()
+        .contains(KEY));
+        f.st.lock().unwrap().group_info.insert(
+            "g".into(),
+            Some(compress_to_vec(
+                payload.as_bytes(),
+                CompressionLevel::Uncompressed,
+            )),
+        );
+        let e = Vault::new(&f.client, KEY)
+            .unwrap()
+            .group_info("g")
+            .unwrap_err();
+        assert!(matches!(e, Error::BadResponse(_)));
+        assert!(!e.to_string().contains(KEY), "{e}");
+        assert!(e.to_string().contains("***"), "{e}");
     }
 
     // ---- the statuses ----------------------------------------------------------------------
