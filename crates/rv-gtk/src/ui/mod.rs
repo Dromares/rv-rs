@@ -1315,14 +1315,20 @@ impl SimpleComponent for App {
                             "Updated to version {}. Restart rv-gtk to use it.",
                             done.version
                         ));
-                        self.show_banner(Some(&format!(
-                            "rv-gtk was updated to version {}. The old program is kept as {}. Restart rv-gtk to use the new one.",
-                            done.version,
-                            done.backup.as_ref().map_or_else(
-                                || "(there was none)".to_owned(),
-                                |b| b.display().to_string()
-                            )
-                        )));
+                        // Not the banner: that one is red, for things that went wrong.
+                        gtk4::AlertDialog::builder()
+                            .modal(true)
+                            .message(format!("rv-gtk was updated to version {}", done.version))
+                            .detail(format!(
+                                "Restart rv-gtk to use the new version. The old program is kept as {}.",
+                                done.backup.as_ref().map_or_else(
+                                    || "(there was none)".to_owned(),
+                                    |b| b.display().to_string()
+                                )
+                            ))
+                            .buttons(["OK"])
+                            .build()
+                            .show(Some(&self.w.window));
                     }
                     Err(e) => self.show_banner(Some(&e)),
                 }
