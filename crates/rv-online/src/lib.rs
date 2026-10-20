@@ -14,6 +14,9 @@ pub mod b64;
 pub mod client;
 pub mod endpoint;
 pub mod error;
+pub mod kdf;
+pub mod mia;
+pub mod salt;
 mod xml;
 
 pub mod transport;
