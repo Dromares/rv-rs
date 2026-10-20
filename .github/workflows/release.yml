@@ -1,0 +1,104 @@
+name: Release (draft only)
+
+# Builds `rv` and `rv-gtk` for Linux x86_64 at the dispatched commit and creates a DRAFT release
+# with the two files and a SHA256SUMS. Nothing is published: publishing is a manual step by the
+# board (see RELEASING.md). This workflow
+#   - runs only when dispatched by hand (workflow_dispatch), never on a push or a tag;
+#   - never pushes a git tag (a draft release has no tag until it is published);
+#   - never publishes and never marks a release as the latest one;
+#   - uses only the job's GITHUB_TOKEN, with `contents: write` and nothing else.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag name of the draft: v<version in Cargo.toml>, e.g. v0.1.0 or v0.1.0-rc.1"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  draft:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # The tag is untrusted input: it goes into the environment, never into a script body.
+      - name: Check the tag against the version in Cargo.toml
+        id: version
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -eu
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::'$TAG' is not v<MAJOR>.<MINOR>.<PATCH>[-pre-release]"; exit 1
+          fi
+          VERSION=$(awk '/^\[workspace.package\]/{p=1;next} /^\[/{p=0} p && /^version[ ]*=/{gsub(/[" ]/,"",$0); sub(/^version=/,"",$0); print; exit}' Cargo.toml)
+          if [ -z "$VERSION" ]; then echo "::error::no workspace version in Cargo.toml"; exit 1; fi
+          if [ "v$VERSION" != "$TAG" ]; then
+            echo "::error::the tag is $TAG but Cargo.toml says version $VERSION at $GITHUB_SHA. Bump the version in a commit first (RELEASING.md)."; exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          case "$VERSION" in *-*) echo "prerelease=true" >> "$GITHUB_OUTPUT";; *) echo "prerelease=false" >> "$GITHUB_OUTPUT";; esac
+
+      - name: Refuse a tag or release that already exists
+        env:
+          TAG: ${{ inputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          if [ -n "$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$TAG" --jq '.[] | select(.ref == "refs/tags/'"$TAG"'") | .ref')" ]; then
+            echo "::error::the tag $TAG already exists"; exit 1
+          fi
+          if gh release list --limit 200 --json tagName --jq '.[].tagName' | grep -Fxq "$TAG"; then
+            echo "::error::a release (maybe a draft) for $TAG already exists; delete it first"; exit 1
+          fi
+
+      - name: Install GTK4 development files
+        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev
+
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal --no-self-update
+
+      - name: Build rv and rv-gtk
+        run: cargo build --release --locked -p rv-cli -p rv-gtk
+
+      - name: Collect the files, check their version, write SHA256SUMS
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -eu
+          mkdir dist
+          cp target/release/rv dist/rv-linux-x86_64
+          cp target/release/rv-gtk dist/rv-gtk-linux-x86_64
+          strip --strip-all dist/rv-linux-x86_64 dist/rv-gtk-linux-x86_64
+          # The file must say the version the tag says.
+          [ "$(./dist/rv-linux-x86_64 --version)" = "rv $VERSION" ]
+          [ "$(./dist/rv-gtk-linux-x86_64 --version)" = "rv-gtk $VERSION" ]
+          cd dist
+          sha256sum rv-linux-x86_64 rv-gtk-linux-x86_64 > SHA256SUMS
+          sha256sum -c SHA256SUMS
+          cat SHA256SUMS
+
+      # --draft: no tag is created and nothing is public. --latest=false: it is never "latest".
+      # --target pins the commit the tag will point at if the board publishes it.
+      - name: Create the draft release
+        env:
+          TAG: ${{ inputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          flags="--draft --latest=false"
+          if [ "$PRERELEASE" = "true" ]; then flags="$flags --prerelease"; fi
+          # shellcheck disable=SC2086
+          gh release create "$TAG" dist/rv-linux-x86_64 dist/rv-gtk-linux-x86_64 dist/SHA256SUMS \
+            $flags --target "$GITHUB_SHA" --title "rv-rs $VERSION" \
+            --notes "Draft built from $GITHUB_SHA by workflow run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. Not published: check the files against SHA256SUMS (RELEASING.md) before publishing."
