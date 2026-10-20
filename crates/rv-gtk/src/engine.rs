@@ -488,9 +488,10 @@ impl PlanSummary {
     /// The words of the confirmation dialog.
     pub fn question(&self, still_missing: usize) -> (String, String) {
         let mut detail = format!(
-            "Fix will write {} files, move {} files or archives to ToSort (or ToSort/Corrupt) \
-             and delete {} files or archive entries. A file is deleted only after its \
-             replacement is written, synced and checked.\n",
+            "Fix will write {} files (a file with the right content is copied or moved into \
+             place), move {} files or archives to ToSort (or ToSort/Corrupt) and delete {} files \
+             or archive entries. A file is deleted only after its replacement is written, synced \
+             and checked.\n",
             self.written, self.moved, self.deleted
         );
         let mut more = Vec::new();

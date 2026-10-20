@@ -597,3 +597,234 @@ mod online {
         assert!(!e.to_string().contains(KEY));
     }
 }
+
+fn with_tosort(t: &Tmp) -> Settings {
+    let mut s = t.settings();
+    s.dir_mappings.push(rv_core::DirMapping {
+        dir_key: "ToSort".to_owned(),
+        dir_path: t.path("ToSort").to_string_lossy().into_owned(),
+    });
+    s
+}
+
+/// A collection with something to fix: `b.rom` is in the DAT but the file `efgh` is called
+/// `bee.rom`, and `junk.rom` is in no DAT. The scan has run; the database is returned.
+fn fixable(t: &Tmp) -> (Settings, rv_core::Database) {
+    let s = with_tosort(t);
+    t.write("DatRoot/Console/NES/Roms/nes.dat", DAT.as_bytes());
+    t.write("RomRoot/Console/NES/Roms/Alpha/a.rom", b"abcd");
+    t.write("RomRoot/Console/NES/Roms/Alpha/bee.rom", b"efgh");
+    t.write("RomRoot/Console/NES/Roms/Alpha/junk.rom", b"junk!");
+    let mut db = engine::open_cache(&s, false).unwrap().db;
+    let nothing = |_: ProgressEvent| {};
+    for task in [
+        Task::UpdateDats { all: false },
+        Task::Scan {
+            level: ScanLevel::Level2,
+            target: ScanTarget::Dir("RomVault/Console/NES/Roms".to_owned()),
+        },
+    ] {
+        engine::run_task(&mut db, &s, &task, false, &nothing, &CancelFlag::new()).unwrap();
+    }
+    (s, db)
+}
+
+#[test]
+fn find_fixes_gives_the_plan_and_writes_nothing() {
+    let t = Tmp::new("find");
+    let (s, mut db) = fixable(&t);
+    let cache_before = fs::read(t.path("test.Cache")).unwrap();
+    let out = engine::run_task(
+        &mut db,
+        &s,
+        &Task::FindFixes { review: true },
+        false,
+        &|_: ProgressEvent| {},
+        &CancelFlag::new(),
+    )
+    .unwrap();
+    let engine::Outcome::FoundFixes { plan, review, .. } = &out else {
+        panic!("not a Find Fixes outcome: {out:?}");
+    };
+    assert!(*review);
+    let sum = engine::PlanSummary::of(plan);
+    // b.rom is made from bee.rom (the plan counts it as a file written), junk.rom goes to ToSort.
+    assert_eq!(sum.written, 1, "{plan:?}");
+    assert_eq!(sum.moved, 1, "{plan:?}");
+    assert_eq!(sum.deleted, 0, "{plan:?}");
+    assert!(!sum.is_empty());
+    assert!(
+        out.summary().starts_with("Find Fixes: "),
+        "{}",
+        out.summary()
+    );
+
+    // The statuses are on the tree, for the lists to show.
+    let dir = model::dir_at(
+        &db.root,
+        &["RomVault", "Console", "NES", "Roms"].map(String::from),
+    )
+    .unwrap();
+    let alpha = &dir.children[0];
+    assert!(alpha
+        .children
+        .iter()
+        .any(|c| c.rep_status == RepStatus::CAN_BE_FIXED));
+
+    assert_eq!(
+        fs::read(t.path("test.Cache")).unwrap(),
+        cache_before,
+        "cache untouched"
+    );
+    assert!(t.path("RomRoot/Console/NES/Roms/Alpha/bee.rom").exists());
+    assert!(!t.path("RomRoot/Console/NES/Roms/Alpha/b.rom").exists());
+    assert!(!t.path("ToSort").exists());
+    assert!(!Task::FindFixes { review: false }.saves_cache());
+    assert!(Task::Fix.saves_cache());
+}
+
+#[test]
+fn fix_makes_the_files_through_rv_fix_and_the_cache_agrees() {
+    let t = Tmp::new("fix");
+    let (s, mut db) = fixable(&t);
+    let out = engine::run_task(
+        &mut db,
+        &s,
+        &Task::Fix,
+        false,
+        &|_: ProgressEvent| {},
+        &CancelFlag::new(),
+    )
+    .unwrap();
+    let engine::Outcome::Fixed(report) = &out else {
+        panic!("not a Fix outcome: {out:?}");
+    };
+    assert!(
+        report.error.is_none() && report.save_error.is_none(),
+        "{report:?}"
+    );
+    assert!(out.problem().is_none());
+    assert_eq!(
+        fs::read(t.path("RomRoot/Console/NES/Roms/Alpha/b.rom")).unwrap(),
+        b"efgh"
+    );
+    assert!(!t.path("RomRoot/Console/NES/Roms/Alpha/bee.rom").exists());
+    assert!(!t.path("RomRoot/Console/NES/Roms/Alpha/junk.rom").exists());
+    assert!(
+        t.path("ToSort").exists(),
+        "the junk file was moved, not deleted"
+    );
+
+    // The saved cache is what the fix left: nothing left to fix, everything correct.
+    let mut again = engine::open_cache(&s, false).unwrap().db;
+    let out = engine::run_task(
+        &mut again,
+        &s,
+        &Task::FindFixes { review: false },
+        false,
+        &|_: ProgressEvent| {},
+        &CancelFlag::new(),
+    )
+    .unwrap();
+    let engine::Outcome::FoundFixes { plan, .. } = out else {
+        panic!()
+    };
+    assert!(engine::PlanSummary::of(&plan).is_empty(), "{plan:?}");
+}
+
+#[test]
+fn a_cancelled_fix_changes_no_file() {
+    let t = Tmp::new("fixcancel");
+    let (s, mut db) = fixable(&t);
+    let cancel = CancelFlag::new();
+    cancel.cancel();
+    let out = engine::run_task(
+        &mut db,
+        &s,
+        &Task::Fix,
+        false,
+        &|_: ProgressEvent| {},
+        &cancel,
+    )
+    .unwrap();
+    assert!(out.cancelled());
+    assert!(out.summary().ends_with("(cancelled)"), "{}", out.summary());
+    assert!(t.path("RomRoot/Console/NES/Roms/Alpha/bee.rom").exists());
+    assert!(t.path("RomRoot/Console/NES/Roms/Alpha/junk.rom").exists());
+    assert!(!t.path("ToSort").exists());
+}
+
+#[test]
+fn fix_and_find_fixes_refuse_a_path_under_the_live_library() {
+    let t = Tmp::new("fixguard");
+    let mut db = rv_core::Database::default_db();
+    for edit in [
+        (|s: &mut Settings| s.dir_mappings[0].dir_path = "/mnt/HHD16TB/RomRoot".to_owned())
+            as fn(&mut Settings),
+        |s| s.dir_mappings[1].dir_path = "/mnt/HHD16TB/ToSort".to_owned(),
+        |s| s.cache_file = "/mnt/HHD16TB/RomVault3_3.Cache".to_owned(),
+    ] {
+        let mut s = with_tosort(&t);
+        edit(&mut s);
+        for task in [Task::Fix, Task::FindFixes { review: true }] {
+            let r = engine::run_task(
+                &mut db,
+                &s,
+                &task,
+                false,
+                &|_: ProgressEvent| panic!("the guard comes before any progress"),
+                &CancelFlag::new(),
+            );
+            assert!(
+                matches!(r, Err(EngineError::Protected(_))),
+                "{task:?} must be refused, got {:?}",
+                r.map(|_| ())
+            );
+        }
+    }
+    assert!(!t.path("test.Cache").exists(), "nothing was written");
+}
+
+#[test]
+fn the_question_states_the_counts_and_a_stopped_fix_is_a_problem() {
+    let plan = {
+        let t = Tmp::new("question");
+        let (s, mut db) = fixable(&t);
+        match engine::run_task(
+            &mut db,
+            &s,
+            &Task::FindFixes { review: true },
+            false,
+            &|_: ProgressEvent| {},
+            &CancelFlag::new(),
+        )
+        .unwrap()
+        {
+            engine::Outcome::FoundFixes { plan, .. } => plan,
+            other => panic!("{other:?}"),
+        }
+    };
+    let (message, detail) = engine::PlanSummary::of(&plan).question(plan.still_missing);
+    assert_eq!(message, "Fix the ticked directories?");
+    assert!(
+        detail.starts_with("Fix will write 1 files (a file with the right content is copied or moved into place), move 1 files or archives to ToSort"),
+        "{detail}"
+    );
+    assert!(
+        detail.contains("and delete 0 files or archive entries"),
+        "{detail}"
+    );
+    let text = engine::plan_text(&plan, 1);
+    assert!(text.starts_with("Dry run: the fix would do this (nothing is written):"));
+    assert!(text.contains("... and 1 more"), "{text}");
+
+    let stopped = engine::Outcome::Fixed(rv_fix::FixReport {
+        error: Some(rv_fix::FixError::RescanNeeded("a.rom changed.".to_owned())),
+        ..Default::default()
+    });
+    assert_eq!(
+        stopped.problem().as_deref(),
+        Some("The fix stopped: a.rom changed. Rescan needed.")
+    );
+    assert!(stopped.summary().contains("(stopped)"));
+}
