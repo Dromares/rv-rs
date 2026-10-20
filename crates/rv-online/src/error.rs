@@ -24,6 +24,8 @@ pub enum Error {
     Salt(String),
     /// A file could not be read or written.
     Io(String),
+    /// What an MIA update could not do, in the words of the menu (`MIA::UpdateMIA`).
+    Mia(String),
     /// A name from the server that would write outside the DAT root.
     UnsafePath(String),
 }
@@ -46,6 +48,7 @@ impl fmt::Display for Error {
             Error::KeyRequired => f.write_str("a DatVault key is required"),
             Error::Salt(m) => write!(f, "cannot read the MIA salt: {m}"),
             Error::Io(m) => f.write_str(m),
+            Error::Mia(m) => f.write_str(m),
             Error::UnsafePath(m) => write!(f, "the service named a path outside the DAT root: {m}"),
         }
     }

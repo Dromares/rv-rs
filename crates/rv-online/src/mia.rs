@@ -17,8 +17,10 @@ use cbc::cipher::{BlockDecryptMut, KeyIvInit};
 use rv_core::{MiaStatus, RvFile};
 
 use crate::client::Client;
+use crate::config::OnlineConfig;
+use crate::error::{Error, Result};
 use crate::kdf::PasswordDeriveBytes;
-use crate::salt::Salt;
+use crate::salt::{read_salt, Salt, SaltSource};
 
 /// `MIACacheStatus` (`online-protocol.md` section 5.3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -261,6 +263,55 @@ pub fn fetch(client: &Client, key: &str, salt: &Salt, cache: &Path) -> Fetched {
         Some(Ok(l)) => done(MiaCacheStatus::NoChange, Some(l)),
         _ => done(MiaCacheStatus::Failed, None),
     }
+}
+
+/// The result of [`prepare`].
+#[derive(Debug)]
+pub enum Prepared {
+    /// The list has not changed since it was last applied and no update was forced.
+    Unchanged { release: String },
+    /// Apply this list.
+    Ready {
+        list: MiaList,
+        release: String,
+        /// The list was fetched but could not be written to the cache.
+        cache_unwritable: bool,
+    },
+}
+
+/// `MIA::UpdateMIA` up to the point where the database is touched: the key, the salt out of the
+/// user's exe (`src` says which exe is known), the version check, the cache, the fetch. The
+/// answers to the statuses are `UpdateMIA`'s: fetched or no status: apply; unchanged: apply only
+/// when `force`; expired, failed, no key: an error with the menu's words.
+pub fn prepare(
+    client: &Client,
+    cfg: &OnlineConfig,
+    src: &SaltSource,
+    force: bool,
+) -> Result<Prepared> {
+    if !cfg.has_key() {
+        return Err(Error::KeyRequired);
+    }
+    let exe = cfg.rom_vault_exe.as_ref().ok_or_else(|| {
+        Error::Salt(
+            "the MIA list is encrypted with a value that is read from your own ROMVault 3.8.0 exe, and no exe is set (rom_vault_exe)"
+                .into(),
+        )
+    })?;
+    let salt = read_salt(exe, src)?;
+    let fetched = fetch(client, &cfg.dat_vault_key, &salt, &cfg.mia_cache_path());
+    let Some(list) = fetched.list else {
+        return Err(Error::Mia(fetched.status.describe().into()));
+    };
+    let release = ticks_to_date(list.miaver);
+    if fetched.status == MiaCacheStatus::NoChange && !force {
+        return Ok(Prepared::Unchanged { release });
+    }
+    Ok(Prepared::Ready {
+        list,
+        release,
+        cache_unwritable: fetched.status == MiaCacheStatus::Failed,
+    })
 }
 
 // ---- applying the list ---------------------------------------------------------------------
@@ -969,6 +1020,91 @@ mod tests {
             apply_mia(&mut empty, &list, &opts(false)),
             Applied::default()
         );
+    }
+
+    // ---- prepare ---------------------------------------------------------------------------
+
+    fn synthetic_exe_file(tag: &str) -> (std::path::PathBuf, SaltSource) {
+        let dir = tmp(tag);
+        let exe = crate::salt::synthetic_exe(0x1234, &[3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5, 8, 9]);
+        let src = crate::salt::synthetic_source(&exe, 0x1234, 13);
+        let p = dir.join("stand-in.exe");
+        std::fs::write(&p, &exe).unwrap();
+        (p, src)
+    }
+
+    fn cfg_for(exe: &std::path::Path, cache: std::path::PathBuf) -> OnlineConfig {
+        OnlineConfig {
+            dat_vault_key: KEY.into(),
+            rom_vault_exe: Some(exe.to_path_buf()),
+            mia_cache: Some(cache),
+            ..OnlineConfig::default()
+        }
+    }
+
+    #[test]
+    fn prepare_follows_update_mia() {
+        let (exe, src) = synthetic_exe_file("prep");
+        let cache = tmp("prep-cache").join("MIA.Cache");
+        let b = blob(638_000_000_000_000_000, &[rec(1)], KEY, &salt());
+        let (_st, srv, c) = served(Some(638_000_000_000_000_000), Some(b));
+        let cfg = cfg_for(&exe, cache);
+        // First: fetched, apply.
+        match prepare(&c, &cfg, &src, false).unwrap() {
+            Prepared::Ready {
+                list,
+                release,
+                cache_unwritable,
+            } => {
+                assert_eq!(list.len(), 1);
+                assert_eq!(release, ticks_to_date(638_000_000_000_000_000));
+                assert!(!cache_unwritable);
+            }
+            other => panic!("{other:?}"),
+        }
+        // Second: unchanged, unless forced.
+        assert!(matches!(
+            prepare(&c, &cfg, &src, false).unwrap(),
+            Prepared::Unchanged { .. }
+        ));
+        assert!(matches!(
+            prepare(&c, &cfg, &src, true).unwrap(),
+            Prepared::Ready { .. }
+        ));
+        assert_eq!(srv.count("GetAutoMIA"), 1);
+    }
+
+    #[test]
+    fn prepare_says_what_is_wrong_in_order() {
+        let (exe, src) = synthetic_exe_file("prep2");
+        let (_st, srv, c) = served(Some(1), Some(vec![]));
+        let cache = tmp("prep2-cache").join("MIA.Cache");
+        let mut cfg = cfg_for(&exe, cache);
+        cfg.dat_vault_key.clear();
+        assert_eq!(
+            prepare(&c, &cfg, &src, false).unwrap_err(),
+            Error::KeyRequired
+        );
+        cfg.dat_vault_key = KEY.into();
+        cfg.rom_vault_exe = None;
+        assert!(matches!(
+            prepare(&c, &cfg, &src, false),
+            Err(Error::Salt(_))
+        ));
+        cfg.rom_vault_exe = Some(exe.with_file_name("nope.exe"));
+        assert!(matches!(
+            prepare(&c, &cfg, &src, false),
+            Err(Error::Salt(_))
+        ));
+        assert!(
+            srv.requests().is_empty(),
+            "nothing was asked of the service"
+        );
+        // Wrong key for the service: expired.
+        cfg.rom_vault_exe = Some(exe);
+        cfg.dat_vault_key = "not a member".into();
+        let e = prepare(&c, &cfg, &src, false).unwrap_err();
+        assert_eq!(e, Error::Mia(MiaCacheStatus::Expired.describe().into()));
     }
 
     #[test]

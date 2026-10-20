@@ -65,7 +65,9 @@ impl Online {
             }
         }
     }
+}
 
+impl Online {
     pub fn require_key(&self, err: &mut dyn Write) -> Result<(), i32> {
         if self.cfg.has_key() {
             return Ok(());
