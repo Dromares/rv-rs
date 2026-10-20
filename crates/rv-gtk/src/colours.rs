@@ -90,6 +90,31 @@ pub fn contrasty(c: Rgb) -> Rgb {
     }
 }
 
+/// Relative luminance (WCAG 2.x) of an sRGB colour.
+fn luminance(c: Rgb) -> f64 {
+    let lin = |v: u8| {
+        let v = f64::from(v) / 255.0;
+        if v <= 0.04045 {
+            v / 12.92
+        } else {
+            ((v + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * lin(c.0) + 0.7152 * lin(c.1) + 0.0722 * lin(c.2)
+}
+
+/// The text colour for labels on `c`: black or white, whichever reads better (WCAG contrast
+/// ratio). It agrees with [`contrasty`] for every colour in the table except bright red, where
+/// white is 4.00:1 and black 5.25:1.
+pub fn ink(c: Rgb) -> Rgb {
+    let l = luminance(c);
+    if 1.05 / (l + 0.05) > (l + 0.05) / 0.05 {
+        Rgb::WHITE
+    } else {
+        Rgb::BLACK
+    }
+}
+
 /// The left-to-right order of the status cells in the game grid (`RepairStatus.DisplayOrder`,
 /// `RepairStatus.cs:181-213`).
 pub const DISPLAY_ORDER: [RepStatus; 25] = [
@@ -126,7 +151,7 @@ pub fn css_class(status: RepStatus) -> String {
 }
 
 /// One rule per coloured status: `.rv-st-9 { background-color: ...; color: ...; }`. The text
-/// colour is the contrasting one, so Delete (brown) and BrightRed rows stay readable.
+/// colour is [`ink`], so Delete (brown) and BrightRed (Corrupt) labels stay readable.
 pub fn css() -> String {
     let mut out = String::new();
     for n in 0..RepStatus::END_VALUE as u8 {
@@ -136,7 +161,7 @@ pub fn css() -> String {
                 ".{} {{ background-color: {}; color: {}; }}\n",
                 css_class(status),
                 bg.css(),
-                contrasty(bg).css()
+                ink(bg).css()
             ));
         }
     }
@@ -213,5 +238,22 @@ mod tests {
         assert!(css.contains(
             ".rv-st-18 { background-color: rgb(140, 80, 80); color: rgb(255, 255, 255); }"
         ));
+    }
+
+    #[test]
+    fn ink_is_black_on_corrupt_red_and_the_formula_elsewhere() {
+        // White on 255,0,0 is 4.00:1, below the 4.5:1 that small text needs; black is 5.25:1.
+        assert_eq!(ink(Rgb(255, 0, 0)), Rgb::BLACK);
+        assert!(css().contains(&format!(
+            ".rv-st-{} {{ background-color: rgb(255, 0, 0); color: rgb(0, 0, 0); }}",
+            RepStatus::CORRUPT.0
+        )));
+        for n in 0..RepStatus::END_VALUE as u8 {
+            if let Some(bg) = status_colour(RepStatus(n)) {
+                if bg != Rgb(255, 0, 0) {
+                    assert_eq!(ink(bg), contrasty(bg), "{bg:?}");
+                }
+            }
+        }
     }
 }

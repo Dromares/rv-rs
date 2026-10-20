@@ -1160,13 +1160,21 @@ fn build_progress(sender: &ComponentSender<App>) -> Progress {
 /// The smallest the main window may be made.
 const MIN_WINDOW: (i32, i32) = (1000, 600);
 
+/// The app's own rules, after the status colours. WCAG contrast figures are against the Adwaita
+/// light and dark window backgrounds.
+const APP_CSS: &str = "\
+    /* The theme's focus ring is 2.4:1 on light; this blue is 4.4:1 light and 3.6:1 dark (needs 3). */\n\
+    :focus-visible { outline-color: #1c71d8; outline-width: 2px; }\n\
+    /* Adwaita dims at 0.55, which fails 4.5:1 for the counts, info text, status line and headers. */\n\
+    .dim-label { opacity: 0.75; }\n\
+    .rv-banner { background-color: mix(@error_color, @window_bg_color, 0.15); \
+                 color: @window_fg_color; padding: 8px; }\n\
+    .rv-key-chip { border: 1px solid rgba(0,0,0,0.35); border-radius: 3px; padding: 2px 8px; }\n";
+
 fn install_css() {
     let provider = gtk4::CssProvider::new();
     let mut css = crate::colours::css();
-    css.push_str(
-        ".rv-banner { background-color: #f8d7da; color: #58151c; padding: 8px; }\n\
-         .rv-key-chip { border: 1px solid rgba(0,0,0,0.35); border-radius: 3px; padding: 2px 8px; }\n",
-    );
+    css.push_str(APP_CSS);
     provider.load_from_string(&css);
     if let Some(display) = gdk::Display::default() {
         gtk4::style_context_add_provider_for_display(
