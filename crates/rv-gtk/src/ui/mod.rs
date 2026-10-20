@@ -853,6 +853,47 @@ impl SimpleComponent for App {
         page.append(&progress.revealer);
         page.append(&status);
         root.set_child(Some(&page));
+
+        // Tab order: toolbar, tree, filter row, games, ROMs, then the progress panel and round again.
+        let first_filter = filter_box.first_child().expect("the filter tick boxes");
+        let focus_list = |scroll: &gtk4::ScrolledWindow| scroll.child();
+        let (games_list, roms_list) = (focus_list(games.widget()), focus_list(roms.widget()));
+        tab_hops(
+            tree.widget(),
+            Box::new({
+                let first_filter = first_filter.clone();
+                move || Some(first_filter.clone())
+            }),
+            Box::new({
+                let settings_btn = settings_btn.clone();
+                move || Some(settings_btn.clone().upcast())
+            }),
+        );
+        tab_hops(
+            games.widget(),
+            Box::new({
+                let roms_list = roms_list.clone();
+                move || roms_list.clone()
+            }),
+            Box::new({
+                let search = search.clone();
+                move || Some(search.clone().upcast())
+            }),
+        );
+        tab_hops(
+            roms.widget(),
+            Box::new({
+                let (cancel, update) = (progress.cancel.clone(), update.clone());
+                move || {
+                    Some(if cancel.is_mapped() && cancel.is_sensitive() {
+                        cancel.clone().upcast()
+                    } else {
+                        update.clone().upcast()
+                    })
+                }
+            }),
+            Box::new(move || games_list.clone()),
+        );
         root.set_titlebar(Some(&gtk4::HeaderBar::new()));
 
         // Wire the buttons.
@@ -1188,6 +1229,33 @@ fn build_progress(sender: &ComponentSender<App>) -> Progress {
     }
 }
 
+/// A list takes Tab for its own rows, one row per press, so a keyboard user could never leave it.
+/// Tab and Shift+Tab on `list` move the focus to what `next` and `prev` give instead; the arrow
+/// keys still move between rows.
+fn tab_hops(
+    list: &gtk4::ScrolledWindow,
+    next: Box<dyn Fn() -> Option<gtk4::Widget>>,
+    prev: Box<dyn Fn() -> Option<gtk4::Widget>>,
+) {
+    let keys = gtk4::EventControllerKey::new();
+    keys.set_propagation_phase(gtk4::PropagationPhase::Capture);
+    keys.connect_key_pressed(move |_, key, _, state| {
+        let plain =
+            !state.intersects(gdk::ModifierType::CONTROL_MASK | gdk::ModifierType::ALT_MASK);
+        let target = match key {
+            gdk::Key::Tab if plain && state.contains(gdk::ModifierType::SHIFT_MASK) => prev(),
+            gdk::Key::Tab if plain => next(),
+            gdk::Key::ISO_Left_Tab if plain => prev(),
+            _ => return glib::Propagation::Proceed,
+        };
+        match target {
+            Some(w) if w.grab_focus() => glib::Propagation::Stop,
+            _ => glib::Propagation::Proceed,
+        }
+    });
+    list.add_controller(keys);
+}
+
 /// Lines of DAT fields (description, version, author, date) the info panel always has room for.
 const INFO_FIELD_LINES: i32 = 4;
 
@@ -1197,12 +1265,15 @@ const MIN_WINDOW: (i32, i32) = (1000, 600);
 /// The app's own rules, after the status colours. WCAG contrast figures are against the Adwaita
 /// light and dark window backgrounds.
 const APP_CSS: &str = "\
-    /* The theme's focus ring is 2.4:1 on light; this blue is 4.4:1 light and 3.6:1 dark (needs 3). */\n\
-    :focus-visible { outline-color: #1c71d8; outline-width: 2px; }\n\
+    /* The theme's focus ring is 2.4:1 on light. This blue is 3.5:1 on the light window and \
+       3.3:1 on the dark one (a darker blue fails 3:1 on dark). */\n\
+    :focus-visible { outline-color: #3584e4; outline-width: 2px; }\n\
     /* Adwaita dims at 0.55, which fails 4.5:1 for the counts, info text, status line and headers. */\n\
     .dim-label { opacity: 0.75; }\n\
     /* The theme's header text is a fixed grey (#979a9b light, #90908f dark). */\n\
     columnview.view > header > button { color: @theme_fg_color; }\n\
+    /* The 0 / 5 text on the scan bars: the theme sets it at 40% of the text colour (2.2:1). */\n\
+    progressbar > text { color: @theme_fg_color; }\n\
     /* Tinted over the window colour, so it follows the light or dark scheme. */\n\
     .rv-banner { background-color: alpha(#e01b24, 0.18); border-left: 4px solid #e01b24; \
                  padding: 8px; }\n\

@@ -62,7 +62,10 @@ fn update_scan_save_and_load_again_through_the_window_calls() {
 
     // No cache yet: the default database, as ROMVault's first run.
     let mut opened = engine::open_cache(&s, false).expect("a missing cache is a new one");
-    assert!(opened.created, "no file: a new empty database, not a loaded cache");
+    assert!(
+        opened.created,
+        "no file: a new empty database, not a loaded cache"
+    );
     assert!(opened.db.root.children.iter().any(|c| c.name == "RomVault"));
 
     let events = std::cell::RefCell::new(Vec::new());
