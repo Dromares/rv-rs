@@ -108,15 +108,47 @@ pub fn save(path: &Path, cache: &CacheFile) -> Result<(), CacheError> {
     save_with(path, cache, |file| file)
 }
 
+/// The points of a [`save_stepped`] where a caller may look, and stop.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SaveStep {
+    /// The temp file is written (not yet synced).
+    TmpWritten,
+    /// The temp file is on disk.
+    TmpSynced,
+    /// The old cache is kept as `<path>Backup`; `path` still holds the old cache.
+    BackedUp,
+    /// The temp file has been renamed over `path`.
+    Renamed,
+}
+
+/// [`save`] that reports each [`SaveStep`] to `step`, for the fixer's fault-injection tests: a
+/// kill at any of them must leave a cache that loads.
+pub fn save_stepped(
+    path: &Path,
+    cache: &CacheFile,
+    step: &mut dyn FnMut(SaveStep),
+) -> Result<(), CacheError> {
+    save_inner(path, cache, |file| file, step)
+}
+
 /// [`save`] with the temp-file writer wrapped, so tests can fail a write part-way.
 pub(crate) fn save_with<W: Write>(
     path: &Path,
     cache: &CacheFile,
     wrap: impl FnOnce(File) -> W,
 ) -> Result<(), CacheError> {
+    save_inner(path, cache, wrap, &mut |_| {})
+}
+
+fn save_inner<W: Write>(
+    path: &Path,
+    cache: &CacheFile,
+    wrap: impl FnOnce(File) -> W,
+    step: &mut dyn FnMut(SaveStep),
+) -> Result<(), CacheError> {
     let bytes = cache.to_bytes()?;
     let tmp = tmp_path(path);
-    let result = write_tmp(&tmp, &bytes, wrap).and_then(|()| install(path, &tmp));
+    let result = write_tmp(&tmp, &bytes, wrap, step).and_then(|()| install(path, &tmp, step));
     if result.is_err() {
         let _ = fs::remove_file(&tmp);
     }
@@ -129,6 +161,7 @@ fn write_tmp<W: Write>(
     tmp: &Path,
     bytes: &[u8],
     wrap: impl FnOnce(File) -> W,
+    step: &mut dyn FnMut(SaveStep),
 ) -> Result<(), CacheError> {
     match fs::remove_file(tmp) {
         Ok(()) => {}
@@ -140,12 +173,14 @@ fn write_tmp<W: Write>(
     w.write_all(bytes)?;
     w.flush()?;
     drop(w);
+    step(SaveStep::TmpWritten);
     // Reopen to fsync: `wrap` consumed the handle, and syncing needs only the inode.
     File::open(tmp)?.sync_all()?;
+    step(SaveStep::TmpSynced);
     Ok(())
 }
 
-fn install(path: &Path, tmp: &Path) -> Result<(), CacheError> {
+fn install(path: &Path, tmp: &Path, step: &mut dyn FnMut(SaveStep)) -> Result<(), CacheError> {
     if path.exists() {
         let backup = backup_path(path);
         match fs::remove_file(&backup) {
@@ -158,7 +193,9 @@ fn install(path: &Path, tmp: &Path) -> Result<(), CacheError> {
             File::open(&backup)?.sync_all()?;
         }
     }
+    step(SaveStep::BackedUp);
     fs::rename(tmp, path)?;
+    step(SaveStep::Renamed);
     Ok(())
 }
 

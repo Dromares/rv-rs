@@ -33,11 +33,14 @@ use std::io::Write;
 use rv_core::RvFile;
 
 pub use database::{
-    into_database, load_database, save_database, to_cache_file, DatabaseError, DatabaseOptions,
-    SaveError,
+    into_database, load_database, save_database, save_database_stepped, to_cache_file,
+    DatabaseError, DatabaseOptions, SaveError,
 };
 pub use error::CacheError;
-pub use store::{backup_path, load, load_file, save, tmp_path, LoadError, LoadSource, Loaded};
+pub use store::{
+    backup_path, load, load_file, save, save_stepped, tmp_path, LoadError, LoadSource, Loaded,
+    SaveStep,
+};
 
 /// The trailing `u64` that ends every cache (`DB.cs:24`): bytes `A7 DD 00 A6 15 00 00 00`.
 pub const END_MARKER: u64 = 0x0015_A600_DDA7;

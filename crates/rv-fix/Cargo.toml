@@ -1,6 +1,6 @@
 [package]
 name = "rv-fix"
-description = "Placeholder, nothing implemented yet: fix finder and fixer"
+description = "Find Fixes and Fix ROMs: decides what is wrong with the library and repairs it without losing a file"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,3 +10,14 @@ publish.workspace = true
 [dependencies]
 rv-core = { workspace = true }
 rv-archive = { workspace = true }
+rv-scan = { workspace = true }
+rv-dat = { workspace = true }
+
+[dev-dependencies]
+crc32fast = "1"
+rv-cache = { workspace = true }
+
+[features]
+# Test only. Puts the safety step of 3.8.0 back the way it was (delete the old archive, then
+# rename the new one in) so that the crash tests can be shown to catch it. Never enable it.
+mutation-3-8-0-order = []

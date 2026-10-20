@@ -147,7 +147,10 @@ impl Scan<'_> {
         let is_file_only = self.is_file_only(tree);
 
         for (name, meta) in files {
-            if name.starts_with("__RomVault.") && name.ends_with(".tmp") {
+            // `__RomVault.*.tmp` is ROMVault's temp name, `__*.rvtmp` the fixer's (`AtomicFile`).
+            if (name.starts_with("__RomVault.") && name.ends_with(".tmp"))
+                || (name.starts_with("__") && name.ends_with(".rvtmp"))
+            {
                 // ROMVault deletes these; the scanner here only reads.
                 let message = "Stale temporary file ignored.".to_owned();
                 self.error(&path_combine(&physical, &name), message);
