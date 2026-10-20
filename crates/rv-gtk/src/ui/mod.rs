@@ -253,7 +253,7 @@ const CANCELLING: &str = "Cancelling... finishing the file in progress";
 /// The status line after the cache was read.
 fn load_status(took: Duration, rows: usize, created: bool) -> String {
     if created {
-        format!("No cache file yet: a new empty database was created; {rows} rows in the tree")
+        format!("No cache file yet: started a new empty database; {rows} rows in the tree")
     } else {
         format!(
             "Cache loaded in {:.2} s; {rows} rows in the tree",
