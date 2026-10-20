@@ -17,7 +17,6 @@ use cbc::cipher::{BlockDecryptMut, KeyIvInit};
 use rv_core::{MiaStatus, RvFile};
 
 use crate::client::Client;
-use crate::error::{Error, Result};
 use crate::kdf::PasswordDeriveBytes;
 use crate::salt::Salt;
 
@@ -217,25 +216,6 @@ pub struct Fetched {
     pub list: Option<MiaList>,
 }
 
-fn write_cache(path: &Path, bytes: &[u8]) -> Result<()> {
-    use std::io::Write;
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)
-            .map_err(|e| Error::Io(format!("cannot create {}: {e}", dir.display())))?;
-    }
-    let tmp = path.with_extension("tmp");
-    let write = || -> std::io::Result<()> {
-        let mut f = std::fs::File::create(&tmp)?;
-        f.write_all(bytes)?;
-        f.sync_all()?;
-        std::fs::rename(&tmp, path)
-    };
-    write().map_err(|e| {
-        let _ = std::fs::remove_file(&tmp);
-        Error::Io(format!("cannot write {}: {e}", path.display()))
-    })
-}
-
 /// `MIA::LoadmiaCRC()`: the version check, the cache, the fetch.
 ///
 /// 1. No key: `DatVaultKeyNotFound`.
@@ -271,7 +251,7 @@ pub fn fetch(client: &Client, key: &str, salt: &Salt, cache: &Path) -> Fetched {
     if let Ok(Some(blob)) = client.get_auto_mia(key) {
         if let Ok(l) = load_list(&blob, key, salt, -1) {
             // A cache that cannot be written is still a list that was fetched.
-            return match write_cache(cache, &blob) {
+            return match crate::fsio::write_atomic(cache, &blob) {
                 Ok(()) => done(MiaCacheStatus::NewFetched, Some(l)),
                 Err(_) => done(MiaCacheStatus::Failed, Some(l)),
             };

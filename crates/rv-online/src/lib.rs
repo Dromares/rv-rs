@@ -12,10 +12,14 @@
 
 pub mod b64;
 pub mod client;
+pub mod config;
+pub mod datvault;
 pub mod endpoint;
 pub mod error;
+mod fsio;
 pub mod kdf;
 pub mod mia;
+pub mod report;
 pub mod salt;
 mod xml;
 
