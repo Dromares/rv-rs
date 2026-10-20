@@ -98,6 +98,16 @@ pub fn save_database(path: &Path, db: &mut Database) -> Result<(), SaveError> {
     save(path, &cache).map_err(SaveError::Cache)
 }
 
+/// [`save_database`] that reports each step of the save (see [`crate::SaveStep`]).
+pub fn save_database_stepped(
+    path: &Path,
+    db: &mut Database,
+    step: &mut dyn FnMut(crate::SaveStep),
+) -> Result<(), SaveError> {
+    let cache = to_cache_file(db).map_err(SaveError::Link)?;
+    crate::store::save_stepped(path, &cache, step).map_err(SaveError::Cache)
+}
+
 /// A database that could not be saved.
 #[derive(Debug)]
 pub enum SaveError {

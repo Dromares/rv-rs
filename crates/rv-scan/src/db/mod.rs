@@ -35,6 +35,7 @@
 //! * A scan is not saved every ten minutes; the caller decides when to save.
 
 mod check;
+pub mod item;
 mod merge;
 mod populate;
 mod scanned;
