@@ -2,11 +2,11 @@
 
 An unofficial, unaffiliated Linux rewrite of [RomVault](https://github.com/RomVault/RVWorld) in Rust: a ROM collection manager that reads DAT files, scans your ROM library and fixes it. It is translated from the RVWorld 3.8.0 source (see [NOTICE](NOTICE)). It is not made or endorsed by the RomVault authors.
 
-**Status: pre-alpha.** The database layers work. `rv-core` and `rv-cache` read and write ROMVault `.Cache` v2/v3 files byte for byte and compute every `RepStatus`; `rv-dat` reads ClrMamePro, XML, MAME, software-list, DOSCenter and RomCenter DATs, writes the XML, MAME XML and DOSCenter formats ROMVault writes, and updates the database from the DATs under `DatRoot`; `rv-scan` hashes files and scans the ROM directories into the database; `rv-archive` reads zips, writes TorrentZips byte for byte, reads 7z archives and verifies CHDs the way ROMVault does. Find fixes and fix are not written yet, and the `rv` and `rv-gtk` programs do nothing yet.
+**Status: pre-alpha.** The database layers work. `rv-core` and `rv-cache` read and write ROMVault `.Cache` v2/v3 files byte for byte and compute every `RepStatus`; `rv-dat` reads ClrMamePro, XML, MAME, software-list, DOSCenter and RomCenter DATs, writes the XML, MAME XML and DOSCenter formats ROMVault writes, and updates the database from the DATs under `DatRoot`; `rv-scan` hashes files and scans the ROM directories into the database; `rv-archive` reads zips, writes TorrentZips byte for byte, reads 7z archives and verifies CHDs the way ROMVault does. `rv-fix` finds what is wrong with the library and fixes it without losing a file, and the `rv` program runs the whole engine from the command line (`update-dats`, `scan`, `find-fixes`, `fix`, `report`, `status`). `rv-gtk` opens an empty window and nothing more yet.
 
 ## Crates
 
-Responsibilities. `rv-core` (the database tree, statuses, settings), `rv-cache`, `rv-dat` (readers, writers, the DAT update), `rv-scan` (hashing and the directory scan) and `rv-archive` (readers and the TorrentZip writer; no 7z writer) are implemented; every other crate is an empty placeholder today.
+Responsibilities. `rv-core` (the database tree, statuses, settings), `rv-cache`, `rv-dat` (readers, writers, the DAT update), `rv-scan` (hashing and the directory scan), `rv-archive` (readers and the TorrentZip writer; no 7z writer), `rv-fix` (Find Fixes, Fix, the plan and the FixDat report) and `rv-cli` (the `rv` program) are implemented; `rv-online`, `rv-update` and `rv-gtk` are empty placeholders today.
 
 | Crate | Notes |
 |---|---|
@@ -15,13 +15,27 @@ Responsibilities. `rv-core` (the database tree, statuses, settings), `rv-cache`,
 | `rv-dat` | Readers for ClrMamePro text (and RAINE), XML (`<datafile>`, MAME `<mame>`/`<mess>`), software lists, DOSCenter and RomCenter; writers for XML, MAME XML and DOSCenter, which are the ones ROMVault has (it has no JSON reader or writer, and none for ClrMamePro, RomCenter or software lists). Also ROMVault's 18-step DAT clean-up and the DAT update: walk `DatRoot`, take out DATs that changed or are gone, merge new ones into the database. **Differences:** a DAT that fails to clean up is skipped, not fatal; `/` in every path |
 | `rv-scan` | CRC32/MD5/SHA1/SHA256 in one pass over any `Read`, copier-header detection and header-stripped ("alt") hashes, hash comparison; the directory scan into the database (zips, 7z, loose files, CHDs, scan levels, ToSort). **Fixed:** inverted MD5 alternate match, SNES/PCE header detection that could never fire, per-directory rule lookups that append a `\\` to a `/` path. **Differences:** read-only (stale `__RomVault.*.tmp` files are reported, not deleted); no periodic cache save |
 | `rv-archive` | zip read and byte-exact TorrentZip (own writer and own port of ROMVault's deflate, because stock zlib does not reproduce its streams), 7z read, CHD read and verify (v1-v5; no child CHDs, no `avhu`). **Fixes:** the writers produce a temp file that the caller fsyncs and renames, so nothing is deleted before its replacement is on disk |
-| `rv-fix` | **Fixes:** write to temp, fsync, then rename, never delete-then-rename; validate before the final name; no process exit without saving |
+| `rv-fix` | Find Fixes (the file groups, the fix status of every file, `CompleteOnly`, ToSort empty files), Fix (loose files, TorrentZip rebuilds, ToSort and the corrupt folder, source selection, double-checked deletes), the dry-run plan and the FixDat report. **Fixes:** every file and archive is written to a temp file, `fsync`ed, read back and compared with the DAT, and only then renamed into place; a source is removed only after its copy is on disk and proven; the old archive is replaced by one rename, never deleted first; the run never exits without saving, and "impossible" branches are errors, not `exit`; corrupt files are kept whole in `ToSort/Corrupt` (3.8.0 overwrites them, and numbers the file and the record differently). **Differences:** no raw copy and no 7z writer, so a zip that is not a TorrentZip/TDC/DTD and any 7z are moved whole but not rewritten (they are listed as left alone); a 7z source is decoded where it is, not extracted to a ToSort cache; the whole-archive "ZipMove" shortcut is replaced by a rebuild; Find Fixes is single-threaded so the source chosen is the same on every run; the `copy rules.txt` hook is not ported |
 | `rv-online` | Rebuilt from the Phase 0 spec. **Error telemetry (`SendErrorMessage*`) is not kept** |
 | `rv-update` | GitHub Releases API, semver compare, sha256 check, replaces the binary only after you confirm |
-| `rv-cli` | Every engine feature headless, with `--dry-run` on fix (binary `rv`) |
+| `rv-cli` | The `rv` program, every engine feature headless: `update-dats`, `scan [--level]`, `find-fixes`, `fix [--dry-run]`, `report` (FixDat) and `status`. Every path is given (`--cache`, `--root`, ...); none has a default, and a path inside `/mnt/HHD16TB/` is refused unless `--allow-live-library` is passed |
 | `rv-gtk` | The GTK4 UI (binary `rv-gtk`) |
 
 The library crates sit under the two binaries (`rv-cli`, `rv-gtk`); nothing depends on `rv-gtk`.
+
+## Using `rv`
+
+```sh
+rv update-dats --cache lib.Cache --root RomRoot --dat-root DatRoot
+rv scan        --cache lib.Cache --root RomRoot            # --level 1|2|3
+rv find-fixes  --cache lib.Cache --root RomRoot            # says what would be done, changes nothing
+rv fix         --cache lib.Cache --root RomRoot --dry-run  # the same plan; writes nothing at all
+rv fix         --cache lib.Cache --root RomRoot
+rv report      --cache lib.Cache --root RomRoot --out fixdats
+rv status      --cache lib.Cache --root RomRoot
+```
+
+`--tosort` defaults to a `ToSort` directory next to `--root`; `--config` reads a `RomVault3cfg.xml` for the DAT rules, with `--root`, `--tosort` and `--dat-root` replacing the directories it names. Ctrl-C stops at the next safe point and saves the cache. A crash leaves `__<name>.rvtmp` files, never a half-written file at a final name; the next `fix` removes them.
 
 ## Build
 
@@ -33,6 +47,8 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
+
+The crash tests of `rv-fix` kill a child process at every step of a fix (`RV_FIX_FAILPOINT=<step>[:<nth>]` is the hook it uses) and check that nothing was lost. `cargo test -p rv-fix --features mutation-3-8-0-order --test crash` puts the order of 3.8.0 back (delete the archive, then rename the new one in) and the same test then fails, which is how the test is known to catch it.
 
 Tests that need the maintainer's own ROMVault files (DATs, caches, ROMs) are `#[ignore]`d and never run in CI. Run them with `RV_FIXTURES_DIR=<dir> cargo test --workspace -- --include-ignored`; they fail, rather than pass, when the variable or a file is missing. The DAT-update and scan tests copy the DATs and hard-link the ROM files into `RV_WORK_DIR` (default: the temp directory) and only read them.
 

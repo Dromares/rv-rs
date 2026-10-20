@@ -9,8 +9,7 @@
 //! * a method or codec that is not decoded is [`ArchiveError::UnsupportedCompression`], like
 //!   `ZipUnsupportedCompression` in ROMVault;
 //! * writers write into the stream they are given and never touch an existing file by name.
-//!   [`AtomicFile`] is the temp-file, `fsync`, rename step; the caller wires it up (the fixer does
-//!   that in Phase 5b).
+//!   [`AtomicFile`] is the temp-file, `fsync`, rename step; the caller wires it up (`rv-fix` does).
 //!
 //! `rv-archive` does not depend on `rv-dat` or `rv-scan`.
 
@@ -24,6 +23,6 @@ pub mod sevenzip;
 pub mod sort;
 pub mod zip;
 
-pub use atomic::AtomicFile;
+pub use atomic::{sync_dir, AtomicFile};
 pub use checked::{into_archive_error, CheckedReader};
 pub use error::{ArchiveError, ChdError, Result, StructureError};

@@ -1,6 +1,6 @@
 [package]
 name = "rv-cli"
-description = "Placeholder, nothing implemented yet: command-line interface"
+description = "The rv command line: update DATs, scan, find fixes, fix, report and status over a ROMVault library"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -16,6 +16,7 @@ rv-archive = { workspace = true }
 rv-fix = { workspace = true }
 rv-online = { workspace = true }
 rv-update = { workspace = true }
+ctrlc = "3"
 
 [[bin]]
 name = "rv"
