@@ -1,0 +1,26 @@
+name: Release (draft only)
+
+# PLACEHOLDER. GitHub only lets a workflow be dispatched by hand when its file is on the default
+# branch, so this registers the name; the real workflow (rv-rs Phase 8, DAN-1823) replaces this
+# file and is dry-run from its own branch by `gh workflow run release.yml --ref <branch>`, which
+# runs the file as it is on that branch. This one builds nothing, publishes nothing and fails
+# on purpose, so a dispatch of it cannot be mistaken for a release.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag name of the draft (unused by the placeholder)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  placeholder:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Not the release workflow yet
+        run: |
+          echo "::error::placeholder: the release workflow is not merged yet (DAN-1823)"
+          exit 1
