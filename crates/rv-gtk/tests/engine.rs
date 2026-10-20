@@ -807,7 +807,7 @@ fn the_question_states_the_counts_and_a_stopped_fix_is_a_problem() {
     let (message, detail) = engine::PlanSummary::of(&plan).question(plan.still_missing);
     assert_eq!(message, "Fix the ticked directories?");
     assert!(
-        detail.starts_with("Fix will write 1 files (a file with the right content is copied or moved into place), move 1 files or archives to ToSort"),
+        detail.starts_with("Fix will write 1 file (a file with the right content is copied or moved into place), move 1 file or archive to ToSort"),
         "{detail}"
     );
     assert!(

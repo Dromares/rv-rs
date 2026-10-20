@@ -314,9 +314,9 @@ impl Outcome {
                     "Find Fixes (cancelled)".to_owned()
                 } else {
                     format!(
-                        "Find Fixes: {}; {} wanted files nothing can make",
+                        "Find Fixes: {}; {} nothing can make",
                         PlanSummary::of(plan).one_line(),
-                        plan.still_missing
+                        noun(plan.still_missing, "wanted file")
                     )
                 }
             }
@@ -480,41 +480,57 @@ impl PlanSummary {
             return "nothing to fix".to_owned();
         }
         format!(
-            "{} files to write, {} to move, {} to delete",
-            self.written, self.moved, self.deleted
+            "{} to write, {} to move, {} to delete",
+            noun(self.written, "file"),
+            self.moved,
+            self.deleted
         )
     }
 
     /// The words of the confirmation dialog.
     pub fn question(&self, still_missing: usize) -> (String, String) {
         let mut detail = format!(
-            "Fix will write {} files (a file with the right content is copied or moved into \
-             place), move {} files or archives to ToSort (or ToSort/Corrupt) and delete {} files \
-             or archive entries. A file is deleted only after its replacement is written, synced \
-             and checked.\n",
-            self.written, self.moved, self.deleted
+            "Fix will write {} (a file with the right content is copied or moved into place), \
+             move {} to ToSort (or ToSort/Corrupt) and delete {}. A file is deleted only after \
+             its replacement is written, synced and checked.\n",
+            noun(self.written, "file"),
+            noun(self.moved, "file or archive"),
+            noun(self.deleted, "file or archive entry"),
         );
         let mut more = Vec::new();
         if self.rebuilt > 0 {
             more.push(format!(
-                "{} archives are written again as TorrentZips",
-                self.rebuilt
+                "{} written again as TorrentZips",
+                noun(self.rebuilt, "archive")
             ));
         }
         if self.renamed > 0 {
-            more.push(format!("{} names change case", self.renamed));
+            more.push(format!("{} change case", noun(self.renamed, "name")));
         }
         if self.left > 0 {
             more.push(format!(
-                "{} archives are left as they are (Fix cannot rewrite them, or they wait for a file)",
-                self.left
+                "{} left as they are (Fix cannot rewrite them, or they wait for a file)",
+                noun(self.left, "archive")
             ));
         }
-        more.push(format!("{still_missing} wanted files nothing can make"));
+        more.push(format!(
+            "{} nothing can make",
+            noun(still_missing, "wanted file")
+        ));
         for line in more {
             detail.push_str(&format!("\n{line}"));
         }
         ("Fix the ticked directories?".to_owned(), detail)
+    }
+}
+
+/// "1 file", "2 files": `one` is the singular.
+fn noun(n: usize, one: &str) -> String {
+    match (n, one) {
+        (1, _) => format!("1 {one}"),
+        (_, "file or archive entry") => format!("{n} files or archive entries"),
+        (_, "file or archive") => format!("{n} files or archives"),
+        _ => format!("{n} {one}s"),
     }
 }
 
