@@ -18,6 +18,9 @@ rv-online = { workspace = true }
 rv-update = { workspace = true }
 ctrlc = "3"
 
+[dev-dependencies]
+rv-online = { workspace = true, features = ["mock"] }
+
 [[bin]]
 name = "rv"
 path = "src/main.rs"

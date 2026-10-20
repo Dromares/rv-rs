@@ -30,6 +30,26 @@ pub const ROMVAULT_3_8_0: SaltSource = SaltSource {
     len: 13,
 };
 
+/// The source `rv` uses: [`ROMVAULT_3_8_0`]. A build with the `mock` feature (the tests of
+/// `rv-cli`) takes `RV_TEST_SALT_SOURCE=<sha256>:<rva in hex>:<length>` instead, so that a
+/// synthetic stand-in file can play the exe.
+pub fn configured_source() -> SaltSource {
+    #[cfg(feature = "mock")]
+    if let Ok(v) = std::env::var("RV_TEST_SALT_SOURCE") {
+        let mut it = v.split(':');
+        if let (Some(sha), Some(rva), Some(len)) = (it.next(), it.next(), it.next()) {
+            if let (Ok(rva), Ok(len)) = (u32::from_str_radix(rva, 16), len.parse()) {
+                return SaltSource {
+                    exe_sha256: Box::leak(sha.to_owned().into_boxed_str()),
+                    rva,
+                    len,
+                };
+            }
+        }
+    }
+    ROMVAULT_3_8_0
+}
+
 /// The salt. It does not show in `Debug` output.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Salt(Vec<u8>);
@@ -47,6 +67,14 @@ impl fmt::Debug for Salt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Salt({} bytes)", self.0.len())
     }
+}
+
+/// Lower-case hex SHA-256.
+pub fn sha256_hex(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 fn le16(b: &[u8], at: usize) -> Option<usize> {
@@ -88,10 +116,7 @@ fn rva_to_offset(b: &[u8], rva: usize) -> Option<usize> {
 pub fn read_salt(exe: &Path, src: &SaltSource) -> Result<Salt> {
     let bytes = std::fs::read(exe)
         .map_err(|e| Error::Salt(format!("cannot read {}: {e}", exe.display())))?;
-    let sha: String = Sha256::digest(&bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
+    let sha = sha256_hex(&bytes);
     if sha != src.exe_sha256 {
         return Err(Error::Salt(format!(
             "{} is not the ROMVault 3.8.0 exe this version knows (SHA-256 {sha})",

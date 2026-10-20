@@ -249,7 +249,7 @@ pub fn fault(message: &str) -> MockReply {
     }
 }
 
-fn param<'a>(op: &'a Node, name: &str) -> String {
+fn param(op: &Node, name: &str) -> String {
     op.child(name).map(|n| n.text.clone()).unwrap_or_default()
 }
 

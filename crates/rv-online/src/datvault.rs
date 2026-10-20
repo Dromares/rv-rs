@@ -414,6 +414,17 @@ impl<'a> Vault<'a> {
     ) -> Result<Plan> {
         sink.report(ProgressEvent::Text("Scanning DatRoot".into()));
         let (seeds, warnings) = read_seeds(dat_root);
+        self.plan_seeds(seeds, warnings, extra_groups, sink)
+    }
+
+    /// [`Vault::plan`] for seeds already in hand (none: just list the groups).
+    pub fn plan_seeds(
+        &self,
+        seeds: Vec<LocalSeed>,
+        warnings: Vec<String>,
+        extra_groups: &[String],
+        sink: &dyn ProgressSink,
+    ) -> Result<Plan> {
         let mut wanted: BTreeSet<String> = seeds.iter().map(|s| s.info.group.clone()).collect();
         wanted.extend(extra_groups.iter().cloned());
         let mut listed = BTreeMap::new();
