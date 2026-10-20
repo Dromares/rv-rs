@@ -4,8 +4,9 @@
 //! directly, so this file is what a reviewer reads to see what the interface can make the
 //! engine do.
 //!
-//! Find Fixes and Fix are not here: the window is not wired to `rv-fix` yet. It shows both
-//! buttons switched off with a note (see [`FIX_PENDING`]).
+//! Find Fixes and Fix are [`Task::FindFixes`] and [`Task::Fix`]: they call `rv_fix::find_fixes`
+//! and `rv_fix::perform_fixes` and nothing else. Every file is written, synced and renamed by
+//! `rv-fix`; this crate has no file-writing code for them.
 
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -18,6 +19,8 @@ use rv_core::guard;
 use rv_core::progress::{CancelFlag, ProgressSink};
 use rv_core::{Database, ScanLevel, Settings};
 use rv_dat::update::{update_dats, UpdateError, UpdateOptions, UpdateReport};
+use rv_fix::plan::{self, Action, FixPlan};
+use rv_fix::{find_fixes, perform_fixes, FindReport, FixOptions, FixReport};
 use rv_online::config::OnlineConfig;
 use rv_online::datvault::{FetchOptions, Vault};
 use rv_online::mia::{self, ApplyOptions, Prepared};
@@ -25,10 +28,6 @@ use rv_online::salt::configured_source;
 use rv_online::Client;
 use rv_scan::db::{scan_files, ScanError, ScanReport, ScanRequest, ScanTarget};
 use rv_update::{Installed, Product, Update, UpdateConfig};
-
-/// Why Find Fixes and Fix are switched off.
-pub const FIX_PENDING: &str =
-    "Off until this window is wired to rv-fix. `rv find-fixes` and `rv fix` work from the command line";
 
 /// The name of the settings file when none is given.
 pub const DEFAULT_CONFIG: &str = "RomVault3cfg.xml";
@@ -182,15 +181,30 @@ pub enum Task {
     DatVaultUpdate { online: OnlineConfig },
     /// "Update MIA": fetch the list and mark the files; `force` also when it has not changed.
     UpdateMia { force: bool, online: OnlineConfig },
+    /// "Find Fixes": give every file its fix status and work out the plan. Nothing on disk
+    /// changes and the cache is not written. `review` is the Fix button's first step: the window
+    /// puts the plan in front of the user before anything is fixed.
+    FindFixes { review: bool },
+    /// "Fix Files", after the user confirmed a plan: Find Fixes again on the database as it is
+    /// now, then `rv_fix::perform_fixes`.
+    Fix,
 }
 
 impl Task {
+    /// Does the run leave the cache saved? Find Fixes only sets statuses in memory; the window
+    /// keeps its own "unsaved tick boxes" mark after it.
+    pub fn saves_cache(&self) -> bool {
+        !matches!(self, Task::FindFixes { .. })
+    }
+
     pub fn title(&self) -> String {
         match self {
             Task::UpdateDats { all: false } => "Updating DATs".to_owned(),
             Task::UpdateDats { all: true } => "Updating all DATs".to_owned(),
             Task::DatVaultUpdate { .. } => "Updating DATs from DatVault".to_owned(),
             Task::UpdateMia { .. } => "Updating MIA".to_owned(),
+            Task::FindFixes { .. } => "Finding fixes".to_owned(),
+            Task::Fix => "Fixing files".to_owned(),
             Task::Scan { level, target } => {
                 let what = match level {
                     ScanLevel::Level1 => "Scanning (headers only)",
@@ -207,7 +221,7 @@ impl Task {
 }
 
 /// What a task did, for the status line.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub enum Outcome {
     Updated(UpdateReport),
     Scanned(ScanReport),
@@ -224,6 +238,13 @@ pub enum Outcome {
         /// `(files checked, files on the list)`; none when the list had not changed.
         applied: Option<(usize, usize)>,
     },
+    FoundFixes {
+        report: FindReport,
+        plan: FixPlan,
+        /// The Fix button asked for this run, to show the plan before fixing.
+        review: bool,
+    },
+    Fixed(FixReport),
 }
 
 impl Outcome {
@@ -233,7 +254,23 @@ impl Outcome {
             Outcome::Scanned(r) => r.cancelled,
             Outcome::DatVault { cancelled, .. } => *cancelled,
             Outcome::Mia { .. } => false,
+            Outcome::FoundFixes { report, .. } => report.cancelled,
+            Outcome::Fixed(r) => r.cancelled,
         }
+    }
+
+    /// What went wrong in a run that otherwise finished: the error that stopped a fix, or a
+    /// cache that could not be saved. The window shows it where the user cannot miss it.
+    pub fn problem(&self) -> Option<String> {
+        let Outcome::Fixed(r) = self else { return None };
+        let mut parts = Vec::new();
+        if let Some(e) = &r.error {
+            parts.push(format!("The fix stopped: {e}"));
+        }
+        if let Some(e) = &r.save_error {
+            parts.push(format!("The cache could not be saved: {e}"));
+        }
+        (!parts.is_empty()).then(|| parts.join("\n"))
     }
 
     pub fn summary(&self) -> String {
@@ -272,6 +309,29 @@ impl Outcome {
                 }
                 None => format!("MIA: nothing changed, release {release}"),
             },
+            Outcome::FoundFixes { report, plan, .. } => {
+                if report.cancelled {
+                    "Find Fixes (cancelled)".to_owned()
+                } else {
+                    format!(
+                        "Find Fixes: {}; {} wanted files nothing can make",
+                        PlanSummary::of(plan).one_line(),
+                        plan.still_missing
+                    )
+                }
+            }
+            Outcome::Fixed(r) => format!(
+                "Fix: {} missing files made, {} moved, {} deleted, {} left alone{}{}",
+                r.fixed,
+                r.count(rv_fix::action::TO_SORT)
+                    + r.count(rv_fix::action::TO_CORRUPT)
+                    + r.count(rv_fix::action::ARCHIVE_TO_SORT)
+                    + r.count(rv_fix::action::ARCHIVE_TO_CORRUPT),
+                r.count(rv_fix::action::DELETE),
+                r.skipped.len(),
+                if r.error.is_some() { " (stopped)" } else { "" },
+                if r.cancelled { " (cancelled)" } else { "" }
+            ),
             Outcome::Scanned(r) => format!(
                 "{} directories, {} archives read, {} files hashed, {} problems{}{}",
                 r.dirs_scanned,
@@ -289,8 +349,9 @@ impl Outcome {
     }
 }
 
-/// Run a task on `db`, then save the cache (the library functions never write it). The check of
-/// the paths is repeated here, so no caller can start an operation in a protected directory.
+/// Run a task on `db`, then save the cache (the library functions never write it; Find Fixes
+/// changes nothing on disk and Fix saves through `rv-fix`). The check of the paths is repeated
+/// here, so no caller can start an operation in a protected directory, Fix included.
 pub fn run_task(
     db: &mut Database,
     settings: &Settings,
@@ -301,6 +362,15 @@ pub fn run_task(
 ) -> Result<Outcome, EngineError> {
     check_paths(settings, allow_protected)?;
     let outcome = match task {
+        Task::FindFixes { review } => {
+            let found = find_fixes(db, settings, progress, cancel);
+            Outcome::FoundFixes {
+                plan: plan::plan(&db.root, settings),
+                report: found.report,
+                review: *review,
+            }
+        }
+        Task::Fix => return fix(db, settings, allow_protected, progress, cancel),
         Task::UpdateDats { all } => {
             let options = UpdateOptions {
                 invalidate: all.then(|| "DatRoot".to_owned()),
@@ -322,8 +392,155 @@ pub fn run_task(
             )
         }
     };
-    save_cache(settings, db, allow_protected)?;
+    if !matches!(task, Task::FindFixes { .. }) {
+        save_cache(settings, db, allow_protected)?;
+    }
     Ok(outcome)
+}
+
+/// Find Fixes, then Fix. The files are written by [`perform_fixes`] (temp file, fsync, rename),
+/// which also saves the cache through the closure below, between items and at the end, whatever
+/// happened. Cancel is a normal end.
+fn fix(
+    db: &mut Database,
+    settings: &Settings,
+    allow_protected: bool,
+    progress: &dyn ProgressSink,
+    cancel: &CancelFlag,
+) -> Result<Outcome, EngineError> {
+    let found = find_fixes(db, settings, progress, cancel);
+    if found.report.cancelled {
+        return Ok(Outcome::Fixed(FixReport {
+            cancelled: true,
+            ..FixReport::default()
+        }));
+    }
+    let options = FixOptions {
+        save_every: settings
+            .cache_save_timer_enabled
+            .then(|| Duration::from_secs(60 * settings.cache_save_time_period.max(1) as u64)),
+        ..FixOptions::default()
+    };
+    let mut saver =
+        |db: &mut Database| save_cache(settings, db, allow_protected).map_err(|e| e.to_string());
+    Ok(Outcome::Fixed(perform_fixes(
+        db,
+        settings,
+        found.groups,
+        &options,
+        progress,
+        cancel,
+        &mut saver,
+    )))
+}
+
+/// What a plan will do, in the three words the confirmation uses (written, moved, deleted) and
+/// the rest. Counts files, archive entries and archives as the plan lists them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PlanSummary {
+    /// Missing files made: loose files and entries of rebuilt archives.
+    pub written: usize,
+    /// Archives written whole again.
+    pub rebuilt: usize,
+    /// Files, entries and archives that go to ToSort or ToSort/Corrupt.
+    pub moved: usize,
+    /// Files and archive entries removed, each after a copy is proven.
+    pub deleted: usize,
+    /// Names that change case only.
+    pub renamed: usize,
+    /// Archives Fix cannot rewrite or has to wait for.
+    pub left: usize,
+}
+
+impl PlanSummary {
+    pub fn of(plan: &FixPlan) -> PlanSummary {
+        let n = |a| plan.count(a);
+        PlanSummary {
+            written: n(Action::MakeFile) + n(Action::MakeMember),
+            rebuilt: n(Action::RebuildArchive),
+            moved: n(Action::MoveFileToSort)
+                + n(Action::MoveFileToCorrupt)
+                + n(Action::MoveArchiveToSort)
+                + n(Action::MoveArchiveToCorrupt)
+                + n(Action::MoveMemberToSort)
+                + n(Action::MoveMemberToCorrupt),
+            deleted: n(Action::DeleteFile) + n(Action::DropMember),
+            renamed: n(Action::RenameFileCase) + n(Action::RenameArchiveCase),
+            left: n(Action::Unsupported) + n(Action::DeferredArchive),
+        }
+    }
+
+    /// Nothing to write, move, delete, rebuild or rename.
+    pub fn is_empty(&self) -> bool {
+        self.written + self.rebuilt + self.moved + self.deleted + self.renamed == 0
+    }
+
+    pub fn one_line(&self) -> String {
+        if self.is_empty() {
+            return "nothing to fix".to_owned();
+        }
+        format!(
+            "{} files to write, {} to move, {} to delete",
+            self.written, self.moved, self.deleted
+        )
+    }
+
+    /// The words of the confirmation dialog.
+    pub fn question(&self, still_missing: usize) -> (String, String) {
+        let mut detail = format!(
+            "Fix will write {} files, move {} files or archives to ToSort (or ToSort/Corrupt) \
+             and delete {} files or archive entries. A file is deleted only after its \
+             replacement is written, synced and checked.\n",
+            self.written, self.moved, self.deleted
+        );
+        let mut more = Vec::new();
+        if self.rebuilt > 0 {
+            more.push(format!(
+                "{} archives are written again as TorrentZips",
+                self.rebuilt
+            ));
+        }
+        if self.renamed > 0 {
+            more.push(format!("{} names change case", self.renamed));
+        }
+        if self.left > 0 {
+            more.push(format!(
+                "{} archives are left as they are (Fix cannot rewrite them, or they wait for a file)",
+                self.left
+            ));
+        }
+        more.push(format!("{still_missing} wanted files nothing can make"));
+        for line in more {
+            detail.push_str(&format!("\n{line}"));
+        }
+        ("Fix the ticked directories?".to_owned(), detail)
+    }
+}
+
+/// The dry-run view: the counts, then every item of the plan (the first `limit`), as text. Read
+/// from the plan only; nothing is opened or written.
+pub fn plan_text(plan: &FixPlan, limit: usize) -> String {
+    let mut out = String::from("Dry run: the fix would do this (nothing is written):\n\n");
+    if plan.counts.is_empty() {
+        out.push_str("  nothing to do\n");
+    }
+    for (a, n) in &plan.counts {
+        out.push_str(&format!("  {n:>8}  {}\n", a.name()));
+    }
+    out.push_str(&format!(
+        "  {:>8}  wanted files nothing can make\n\n",
+        plan.still_missing
+    ));
+    for (a, path) in plan.items.iter().take(limit) {
+        out.push_str(&format!("{}: {path}\n", a.name()));
+    }
+    if plan.items.len() > limit {
+        out.push_str(&format!(
+            "... and {} more (`rv fix --dry-run --verbose` lists all of them)\n",
+            plan.items.len() - limit
+        ));
+    }
+    out
 }
 
 /// "Check key": the words for the status line or the settings dialog. A network problem is

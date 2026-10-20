@@ -27,6 +27,7 @@ use gtk4::{gdk, glib};
 use relm4::prelude::*;
 use rv_core::progress::{CancelFlag, ProgressEvent, ProgressSink};
 use rv_core::{Database, ScanLevel, Settings};
+use rv_fix::plan::FixPlan;
 use rv_scan::db::ScanTarget;
 
 use crate::engine::{self, Outcome, Task};
@@ -93,6 +94,9 @@ impl Args {
     }
 }
 
+/// How many items of the plan the dry-run view lists; the counts above them are always whole.
+const PLAN_LINES: usize = 5000;
+
 const USAGE: &str = "usage: rv-gtk [--config RomVault3cfg.xml] [--prefs rv-gtk.conf]\n\
 \n\
 The directory of the config file is where relative paths in it (DatRoot, the cache, the ROM\n\
@@ -149,6 +153,16 @@ pub enum Msg {
     /// The user said yes to the question about this release.
     InstallUpdate(Opaque<rv_update::Update>),
     UpdateInstalled(Opaque<Result<rv_update::Installed, String>>),
+    /// The Find Fixes button: statuses on the tree and lists, nothing written.
+    FindFixes,
+    /// The Fix Files button: Find Fixes, then the question, then (on yes) [`Msg::StartFix`].
+    FixFiles,
+    /// Put the question about the plan in front of the user again (after the plan view).
+    AskFix,
+    /// The dry-run view of the plan the question is about.
+    ShowPlan,
+    /// The user said yes to the question.
+    StartFix,
     /// The Online menu.
     CheckKey,
     KeyChecked(String),
@@ -219,6 +233,8 @@ pub struct App {
     first_load: bool,
     /// A check or an install of an update is under way.
     updating: bool,
+    /// The plan the Fix question is about, kept for the dry-run view.
+    pending_plan: Option<FixPlan>,
 }
 
 fn set_text_bold(label: &gtk4::Label, text: &str) {
@@ -342,6 +358,92 @@ impl App {
         );
     }
 
+    /// The question before anything is fixed: how many files will be written, moved and
+    /// deleted. Cancel is the default button: Enter or Escape never fixes. "Show plan" is the
+    /// dry-run view and comes back to this question.
+    fn ask_to_fix(&self, sender: &ComponentSender<App>) {
+        let Some(plan) = &self.pending_plan else {
+            return;
+        };
+        let (message, detail) = engine::PlanSummary::of(plan).question(plan.still_missing);
+        let dialog = gtk4::AlertDialog::builder()
+            .modal(true)
+            .message(message)
+            .detail(detail)
+            .buttons(["Cancel", "Show plan", "Fix"])
+            .cancel_button(0)
+            .default_button(0)
+            .build();
+        let tx = sender.input_sender().clone();
+        dialog.choose(
+            Some(&self.w.window),
+            gtk4::gio::Cancellable::NONE,
+            move |answer| match answer {
+                Ok(1) => {
+                    let _ = tx.send(Msg::ShowPlan);
+                }
+                Ok(2) => {
+                    let _ = tx.send(Msg::StartFix);
+                }
+                _ => {}
+            },
+        );
+    }
+
+    /// The dry-run view: the plan as text, read-only. Closing it asks the question again.
+    fn show_plan(&self, sender: &ComponentSender<App>) {
+        let Some(plan) = &self.pending_plan else {
+            return;
+        };
+        let view = gtk4::TextView::new();
+        view.set_editable(false);
+        view.set_cursor_visible(false);
+        view.set_monospace(true);
+        view.set_left_margin(8);
+        view.set_top_margin(8);
+        view.buffer().set_text(&engine::plan_text(plan, PLAN_LINES));
+        let scroller = gtk4::ScrolledWindow::new();
+        scroller.set_child(Some(&view));
+        scroller.set_hexpand(true);
+        scroller.set_vexpand(true);
+        let close = gtk4::Button::with_label("Close");
+        close.set_halign(gtk4::Align::End);
+        close.set_margin_top(6);
+        close.set_margin_bottom(6);
+        close.set_margin_end(6);
+        let body = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        body.append(&scroller);
+        body.append(&close);
+        let window = gtk4::Window::builder()
+            .title("Fix: the plan (dry run, nothing is written)")
+            .transient_for(&self.w.window)
+            .modal(true)
+            .default_width(760)
+            .default_height(480)
+            .child(&body)
+            .build();
+        window.set_default_widget(Some(&close));
+        let w = window.clone();
+        close.connect_clicked(move |_| w.close());
+        let keys = gtk4::EventControllerKey::new();
+        let w = window.clone();
+        keys.connect_key_pressed(move |_, key, _, _| {
+            if key == gtk4::gdk::Key::Escape {
+                w.close();
+                glib::Propagation::Stop
+            } else {
+                glib::Propagation::Proceed
+            }
+        });
+        window.add_controller(keys);
+        let tx = sender.input_sender().clone();
+        window.connect_close_request(move |_| {
+            let _ = tx.send(Msg::AskFix);
+            glib::Propagation::Proceed
+        });
+        window.present();
+    }
+
     fn show_banner(&self, text: Option<&str>) {
         match text {
             Some(t) => {
@@ -362,10 +464,8 @@ impl App {
         self.w.online.set_sensitive(ready);
         // Settings has to work when the cache could not be loaded: that is how it gets fixed.
         self.w.settings.set_sensitive(!self.busy());
-        // Find Fixes and Fix are not wired to rv-fix yet: present, off, with the reason.
         for b in [&self.w.find_fixes, &self.w.fix] {
-            b.set_sensitive(false);
-            b.set_tooltip_text(Some(engine::FIX_PENDING));
+            b.set_sensitive(ready);
         }
     }
 
@@ -432,7 +532,9 @@ impl App {
         }
         let Some(mut db) = self.db.take() else { return };
         self.sync_tree_state(&mut db);
-        self.dirty = false;
+        if task.saves_cache() {
+            self.dirty = false;
+        }
         let cancel = CancelFlag::new();
         let settings = self.settings.clone();
         let allow = self.prefs.allow_protected_paths;
@@ -777,8 +879,14 @@ impl SimpleComponent for App {
             ScanLevel::Level2 => 1,
             ScanLevel::Level3 => 2,
         });
-        let find_fixes = button("Find Fixes", engine::FIX_PENDING);
-        let fix = button("Fix Files", engine::FIX_PENDING);
+        let find_fixes = button(
+            "Find Fixes",
+            "Give every file in the ticked directories its fix status; nothing on disk changes",
+        );
+        let fix = button(
+            "Fix Files",
+            "Find fixes, show what Fix would do, and fix only after you say yes",
+        );
         let settings_btn = button("Settings", "Directories, DAT rules and the cache file");
         let key_btn = button("Key", "What the colours and symbols mean");
 
@@ -1034,6 +1142,8 @@ impl SimpleComponent for App {
         };
         update.connect_clicked(input(|| Msg::RunTask(Task::UpdateDats { all: false })));
         update_all.connect_clicked(input(|| Msg::RunTask(Task::UpdateDats { all: true })));
+        find_fixes.connect_clicked(input(|| Msg::FindFixes));
+        fix.connect_clicked(input(|| Msg::FixFiles));
         scan.connect_clicked(input(|| Msg::ScanSelected));
         settings_btn.connect_clicked(input(|| Msg::OpenSettings(0)));
         key_btn.connect_clicked(input(|| Msg::OpenKey));
@@ -1107,6 +1217,7 @@ impl SimpleComponent for App {
             dirty: false,
             first_load: true,
             updating: false,
+            pending_plan: None,
             args,
         };
         app.update_buttons();
@@ -1166,6 +1277,7 @@ impl SimpleComponent for App {
                 self.task = None;
                 self.db = Some(f.db);
                 self.w.progress.revealer.set_reveal_child(false);
+                let mut ask_fix = false;
                 match f.result {
                     Ok(Some(outcome)) => {
                         let text = format!("{} ({:.1} s)", outcome.summary(), f.took.as_secs_f64());
@@ -1173,6 +1285,20 @@ impl SimpleComponent for App {
                         eprintln!("rv-gtk: {text}");
                         if self.w.progress.error_count.get() > 0 {
                             self.w.progress.revealer.set_reveal_child(true);
+                        }
+                        if let Some(problem) = outcome.problem() {
+                            self.show_banner(Some(&problem));
+                        }
+                        if let Outcome::FoundFixes {
+                            plan,
+                            review: true,
+                            report,
+                        } = outcome
+                        {
+                            if !report.cancelled && !engine::PlanSummary::of(&plan).is_empty() {
+                                self.pending_plan = Some(plan);
+                                ask_fix = true;
+                            }
                         }
                     }
                     Ok(None) => {}
@@ -1185,7 +1311,17 @@ impl SimpleComponent for App {
                 self.update_buttons();
                 if self.closing {
                     self.finish_close();
+                } else if ask_fix {
+                    self.ask_to_fix(&sender);
                 }
+            }
+            Msg::FindFixes => self.run_task(Task::FindFixes { review: false }, &sender),
+            Msg::FixFiles => self.run_task(Task::FindFixes { review: true }, &sender),
+            Msg::AskFix => self.ask_to_fix(&sender),
+            Msg::ShowPlan => self.show_plan(&sender),
+            Msg::StartFix => {
+                self.pending_plan = None;
+                self.run_task(Task::Fix, &sender);
             }
             Msg::Cancel => {
                 if let Some(t) = &self.task {

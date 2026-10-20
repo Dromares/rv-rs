@@ -1365,6 +1365,7 @@ dependencies = [
  "rv-cache",
  "rv-core",
  "rv-dat",
+ "rv-fix",
  "rv-online",
  "rv-scan",
  "rv-update",
