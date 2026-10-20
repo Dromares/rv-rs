@@ -224,8 +224,9 @@ pub fn strip_width(status: &DirStatus) -> i32 {
     w
 }
 
-/// A chip and a count for every status that the game has any of, in ROMVault's order.
-pub fn draw_strip(cr: &Context, h: f64, status: &DirStatus) {
+/// A chip and a count for every status that the game has any of, in ROMVault's order. The counts
+/// are written in `ink`, the theme's text colour, so they stay readable on a dark list too.
+pub fn draw_strip(cr: &Context, h: f64, status: &DirStatus, ink: Rgb) {
     let mut x = 2.0;
     for s in DISPLAY_ORDER {
         let n = status.get(s);
@@ -236,9 +237,9 @@ pub fn draw_strip(cr: &Context, h: f64, status: &DirStatus) {
         let y = (h - ch) / 2.0;
         draw_chip(cr, x, y, 22.0, ch, s);
         let text = n.to_string();
-        set(cr, Rgb(30, 30, 30));
+        set(cr, ink);
         cr.select_font_face("Sans", FontSlant::Normal, FontWeight::Normal);
-        cr.set_font_size(11.0);
+        cr.set_font_size(12.0);
         if let Ok(e) = cr.text_extents(&text) {
             cr.move_to(x + 25.0, y + (ch - e.height()) / 2.0 - e.y_bearing());
             let _ = cr.show_text(&text);
@@ -356,7 +357,7 @@ mod tests {
         s.add(RepStatus::MISSING, rv_core::MiaStatus::NONE, true);
         assert_eq!(strip_width(&s), 4 + 2 * (24 + 7 + 6));
         let w = strip_width(&s);
-        assert!(inked(w, 20, |cr| draw_strip(cr, 20.0, &s)) > 200);
+        assert!(inked(w, 20, |cr| draw_strip(cr, 20.0, &s, Rgb(30, 30, 30))) > 200);
     }
 
     #[test]

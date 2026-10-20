@@ -651,6 +651,8 @@ impl SimpleComponent for App {
     fn init(args: Args, root: Self::Root, sender: ComponentSender<Self>) -> ComponentParts<Self> {
         let prefs = Prefs::load(&args.prefs);
         root.set_default_size(prefs.width, prefs.height);
+        // Below this the filter row and the lists are clipped with no way to reach them.
+        root.set_size_request(MIN_WINDOW.0, MIN_WINDOW.1);
         install_css();
 
         // The toolbar.
@@ -1154,6 +1156,9 @@ fn build_progress(sender: &ComponentSender<App>) -> Progress {
         pulse: Rc::default(),
     }
 }
+
+/// The smallest the main window may be made.
+const MIN_WINDOW: (i32, i32) = (1000, 600);
 
 fn install_css() {
     let provider = gtk4::CssProvider::new();

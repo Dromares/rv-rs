@@ -13,7 +13,7 @@ use rv_core::RepStatus;
 use super::icons::{draw_got, draw_strip, strip_width, GOT_SIZE};
 use super::painted::Painted;
 use super::virtual_list::{row_of, VecSource, VirtualList};
-use crate::colours::css_class;
+use crate::colours::{css_class, Rgb};
 use crate::model::{sort_games, GameList, GameRow, GameSort, RomList, RomRow};
 
 /// Put the colour class of `status` on `label` and take every other status class off it.
@@ -134,8 +134,15 @@ impl GameGrid {
             if let Some(row) = li.item().and_then(|i| row_of::<GameRow>(&i)) {
                 strip.set_content_width(strip_width(&row.status));
                 let status = row.status;
+                let cell = strip.downgrade();
                 strip.set_painter(Box::new(move |cr, _, h| {
-                    draw_strip(cr, f64::from(h), &status)
+                    // The text colour of the current theme, read at draw time.
+                    let ink = cell.upgrade().map_or(Rgb(30, 30, 30), |w| {
+                        let c = w.color();
+                        let byte = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+                        Rgb(byte(c.red()), byte(c.green()), byte(c.blue()))
+                    });
+                    draw_strip(cr, f64::from(h), &status, ink)
                 }));
             }
         });
