@@ -22,6 +22,10 @@ COMMANDS
                          you already have)
     mia update           fetch the MIA list and mark the files in the cache (needs the path of
                          your own ROMVault38.exe in the online settings)
+    update check         is there a newer release on GitHub? (changes nothing)
+    update install       download it, check it against SHA256SUMS and replace this program,
+                         after you say yes (--yes: without asking; the old program is kept as
+                         <program>.rv-backup)
 
 PATHS (all are given; nothing has a default that points at your library)
     --cache <file>       the ROMVault cache file (read; written by update-dats, scan, fix)
@@ -32,6 +36,9 @@ PATHS (all are given; nothing has a default that points at your library)
     --online-config <f>  the online settings (default: ~/.config/rv-rs/online.conf): the DatVault
                          key, the ROMVault exe the MIA salt is read from, allow_plain_http, ...
     --out <dir>          where `report` writes (required by report)
+    --update-config <f>  the update settings (default: ~/.config/rv-rs/update.conf): include_
+                         prereleases, check_on_startup (rv-gtk), api_base
+    --target <file>      update install: replace this file instead of the running program
 
 OPTIONS
     --level <1|2|3>      scan level: 1 quick, 2 normal (default), 3 full
@@ -44,6 +51,8 @@ OPTIONS
     --remove-discontinued datvault fetch: take DATs the service no longer lists out (the DAT
                          becomes <name>.old, its seed is deleted)
     --force              mia update: apply the list even if it has not changed
+    --yes, -y            update install: do not ask
+    -V, --version        print the version and exit
     --allow-live-library allow paths under /mnt/HHD16TB (refused otherwise)
     -h, --help           this text
 ";
@@ -58,6 +67,9 @@ pub struct Args {
     pub updates: bool,
     pub remove_discontinued: bool,
     pub force: bool,
+    pub yes: bool,
+    pub target: Option<PathBuf>,
+    pub update_config: Option<PathBuf>,
     pub cache: Option<PathBuf>,
     pub root: Option<PathBuf>,
     pub tosort: Option<PathBuf>,
@@ -76,6 +88,7 @@ pub struct Args {
 pub enum Parsed {
     Run(Box<Args>),
     Help,
+    Version,
 }
 
 const COMMANDS: &[&str] = &[
@@ -87,12 +100,14 @@ const COMMANDS: &[&str] = &[
     "status",
     "datvault",
     "mia",
+    "update",
 ];
 
 fn subcommands(command: &str) -> &'static [&'static str] {
     match command {
         "datvault" => &["check", "list", "fetch"],
         "mia" => &["update"],
+        "update" => &["check", "install"],
         _ => &[],
     }
 }
@@ -108,6 +123,7 @@ pub fn parse(argv: &[String]) -> Result<Parsed, String> {
         };
         match arg.as_str() {
             "-h" | "--help" => return Ok(Parsed::Help),
+            "-V" | "--version" => return Ok(Parsed::Version),
             "--cache" => a.cache = Some(value("--cache")?),
             "--root" => a.root = Some(value("--root")?),
             "--tosort" => a.tosort = Some(value("--tosort")?),
@@ -122,6 +138,9 @@ pub fn parse(argv: &[String]) -> Result<Parsed, String> {
             "--updates" => a.updates = true,
             "--remove-discontinued" => a.remove_discontinued = true,
             "--force" => a.force = true,
+            "--yes" | "-y" => a.yes = true,
+            "--target" => a.target = Some(value("--target")?),
+            "--update-config" => a.update_config = Some(value("--update-config")?),
             "--level" => {
                 let v = value("--level")?;
                 a.level = match v.to_str() {
@@ -170,7 +189,7 @@ pub fn parse(argv: &[String]) -> Result<Parsed, String> {
         ));
     }
     let online = a.command == "datvault" || a.command == "mia";
-    if a.command != "datvault" {
+    if a.command != "datvault" && a.command != "update" {
         need("--cache <file>", &a.cache)?;
         need("--root <dir>", &a.root)?;
     }
@@ -191,6 +210,12 @@ pub fn parse(argv: &[String]) -> Result<Parsed, String> {
     }
     if a.force && a.command != "mia" {
         return Err("--force is for mia update".to_owned());
+    }
+    if (a.yes || a.target.is_some()) && a.sub.as_deref() != Some("install") {
+        return Err("--yes and --target are for update install".to_owned());
+    }
+    if a.update_config.is_some() && a.command != "update" {
+        return Err("--update-config is for update".to_owned());
     }
     if a.online_config.is_some() && !online {
         return Err("--online-config is for datvault and mia".to_owned());
@@ -219,6 +244,7 @@ mod online_tests {
         match parse(&argv)? {
             Parsed::Run(a) => Ok(*a),
             Parsed::Help => Err("help".to_owned()),
+            Parsed::Version => Err("version".to_owned()),
         }
     }
 
@@ -273,5 +299,41 @@ mod online_tests {
         assert!(p(&["datvault", "list", "--force"]).is_err());
         assert!(p(&["datvault", "list", "--updates"]).is_err());
         assert!(p(&["datvault", "check", "--online-config", "x"]).is_ok());
+    }
+
+    #[test]
+    fn update_words_and_options() {
+        let a = p(&["update", "check"]).unwrap();
+        assert_eq!(
+            (a.command.as_str(), a.sub.as_deref()),
+            ("update", Some("check"))
+        );
+        let a = p(&[
+            "update",
+            "install",
+            "--yes",
+            "--target",
+            "t",
+            "--update-config",
+            "c",
+        ])
+        .unwrap();
+        assert!(a.yes);
+        assert_eq!(a.target.as_deref(), Some(std::path::Path::new("t")));
+        assert!(p(&["update", "install", "-y"]).unwrap().yes);
+        // No cache or root: an update does not read a library.
+        assert!(p(&["update"]).unwrap_err().contains("needs one of"));
+        assert!(p(&["update", "check", "--yes"]).is_err());
+        assert!(p(&["update", "check", "--target", "t"]).is_err());
+        assert!(p(&["datvault", "check", "--update-config", "c"]).is_err());
+        assert!(p(&["scan", "--cache", "c", "--root", "r", "--yes"]).is_err());
+    }
+
+    #[test]
+    fn version_flag() {
+        for f in ["-V", "--version"] {
+            let argv = vec![f.to_owned()];
+            assert!(matches!(parse(&argv), Ok(Parsed::Version)));
+        }
     }
 }
