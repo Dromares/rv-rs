@@ -105,6 +105,8 @@ pub struct Finished {
     pub tree: Vec<Arc<DirNode>>,
     pub result: Result<Option<Outcome>, String>,
     pub took: Duration,
+    /// Set when the load fell back to the cache's backup file.
+    pub notice: Option<String>,
 }
 
 #[derive(Debug)]
@@ -318,6 +320,7 @@ impl App {
             let result = engine::open_cache(&settings, allow)
                 .map(|o| Finished {
                     tree: model::build_tree(&o.db.root, settings.show_new_mia),
+                    notice: o.fallback_notice(),
                     db: o.db,
                     result: Ok(None),
                     took: o.took,
@@ -361,6 +364,7 @@ impl App {
                 tree,
                 result,
                 took: start.elapsed(),
+                notice: None,
             })));
         });
     }
@@ -925,6 +929,9 @@ impl SimpleComponent for App {
                         self.db = Some(f.db);
                         self.show_tree(f.tree);
                         self.report_load_time(f.took);
+                        if let Some(n) = &f.notice {
+                            self.show_banner(Some(n));
+                        }
                         self.follow_args_after_load(&sender);
                     }
                     Err(e) => {

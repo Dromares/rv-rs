@@ -116,6 +116,21 @@ pub struct Opened {
     pub took: Duration,
 }
 
+impl Opened {
+    /// Words for the window when the cache file itself could not be used and its backup was
+    /// loaded instead. The next save would replace the unusable file with the backup's state,
+    /// so the user is told before that happens.
+    pub fn fallback_notice(&self) -> Option<String> {
+        match &self.source {
+            LoadSource::Primary => None,
+            LoadSource::Backup { primary_error } => Some(format!(
+                "The cache file could not be used ({primary_error}), so its backup was loaded \
+                 instead. The next scan or update will overwrite the cache file with this state."
+            )),
+        }
+    }
+}
+
 /// `DB.Read`: the cache of `settings`. Refuses a protected path first.
 pub fn open_cache(settings: &Settings, allow_protected: bool) -> Result<Opened, EngineError> {
     check_paths(settings, allow_protected)?;

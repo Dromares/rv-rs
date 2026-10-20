@@ -133,6 +133,42 @@ fn update_scan_save_and_load_again_through_the_window_calls() {
 }
 
 #[test]
+fn a_corrupt_cache_with_a_backup_loads_the_backup_and_says_so() {
+    let t = Tmp::new("backup");
+    let s = t.settings();
+    t.write("DatRoot/Console/NES/Roms/nes.dat", DAT.as_bytes());
+    let mut opened = engine::open_cache(&s, false).unwrap();
+    assert!(
+        opened.fallback_notice().is_none(),
+        "no cache yet is not a fallback"
+    );
+    let sink = |_: ProgressEvent| {};
+    // Two saves, so that the first state is kept as `test.CacheBackup`.
+    for _ in 0..2 {
+        engine::run_task(
+            &mut opened.db,
+            &s,
+            &Task::UpdateDats { all: false },
+            false,
+            &sink,
+            &CancelFlag::new(),
+        )
+        .expect("update");
+    }
+    assert!(t.path("test.CacheBackup").exists());
+    assert!(engine::open_cache(&s, false)
+        .unwrap()
+        .fallback_notice()
+        .is_none());
+
+    t.write("test.Cache", b"not a cache");
+    let again = engine::open_cache(&s, false).expect("the backup loads");
+    let notice = again.fallback_notice().expect("the fallback is reported");
+    assert!(notice.contains("backup"), "{notice}");
+    assert!(notice.contains("overwrite"), "{notice}");
+}
+
+#[test]
 fn a_cancelled_task_reports_it_and_leaves_a_loadable_cache() {
     let t = Tmp::new("cancel");
     let s = t.settings();
