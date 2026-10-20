@@ -6,7 +6,7 @@ An unofficial, unaffiliated Linux rewrite of [RomVault](https://github.com/RomVa
 
 ## Crates
 
-Responsibilities. `rv-core` (the database tree, statuses, settings), `rv-cache`, `rv-dat` (readers, writers, the DAT update), `rv-scan` (hashing and the directory scan), `rv-archive` (readers and the TorrentZip writer; no 7z writer), `rv-fix` (Find Fixes, Fix, the plan and the FixDat report) and `rv-cli` (the `rv` program) and `rv-gtk` (the window) are implemented; `rv-online` and `rv-update` are empty placeholders today.
+Responsibilities. `rv-core` (the database tree, statuses, settings), `rv-cache`, `rv-dat` (readers, writers, the DAT update), `rv-scan` (hashing and the directory scan), `rv-archive` (readers and the TorrentZip writer; no 7z writer), `rv-fix` (Find Fixes, Fix, the plan and the FixDat report), `rv-cli` (the `rv` program) and `rv-gtk` (the window) are implemented; `rv-online` and `rv-update` are empty placeholders today.
 
 | Crate | Notes |
 |---|---|
