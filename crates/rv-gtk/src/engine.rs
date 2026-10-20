@@ -4,8 +4,8 @@
 //! directly, so this file is what a reviewer reads to see what the interface can make the
 //! engine do.
 //!
-//! Find Fixes and Fix are not here: they are `rv-fix` (Phase 5b), which is not merged yet. The
-//! window shows both buttons switched off with a note (see [`FIX_PENDING`]).
+//! Find Fixes and Fix are not here: the window is not wired to `rv-fix` yet. It shows both
+//! buttons switched off with a note (see [`FIX_PENDING`]).
 
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -28,7 +28,7 @@ use rv_update::{Installed, Product, Update, UpdateConfig};
 
 /// Why Find Fixes and Fix are switched off.
 pub const FIX_PENDING: &str =
-    "Needs the rv-fix library (Phase 5b, DAN-1791), which is not merged yet";
+    "Off until this window is wired to rv-fix. `rv find-fixes` and `rv fix` work from the command line";
 
 /// The name of the settings file when none is given.
 pub const DEFAULT_CONFIG: &str = "RomVault3cfg.xml";
