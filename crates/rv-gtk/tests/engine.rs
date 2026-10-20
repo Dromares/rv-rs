@@ -320,8 +320,10 @@ mod online {
         );
         {
             let mut g = st.lock().unwrap();
-            g.group_info
-                .insert("ni".into(), Some(encode_group_info(&[new.clone()])));
+            g.group_info.insert(
+                "ni".into(),
+                Some(encode_group_info(std::slice::from_ref(&new))),
+            );
             g.files
                 .insert("ni|nes|u2".into(), zip("nes.dat", DAT.as_bytes()));
         }
@@ -350,6 +352,37 @@ mod online {
         );
         assert!(t.path("test.Cache").exists());
         assert!(!out.summary().contains(KEY));
+    }
+
+    #[test]
+    fn check_key_says_valid_invalid_or_why_not() {
+        let t = Tmp::new("ck");
+        let st = mock::state(KEY);
+        let srv = mock::start_service(&st);
+        let mut c = config(&t, &srv);
+        assert_eq!(engine::check_key(&c), "The DatVault key is valid.");
+        c.dat_vault_key = "other".into();
+        assert_eq!(engine::check_key(&c), "The DatVault key is not valid.");
+        c.dat_vault_key = "  ".into();
+        assert_eq!(engine::check_key(&c), "Enter a DatVault key first.");
+        // Plain http without the switch: refused, with the reason, and nothing is sent.
+        let before = srv.requests().len();
+        c.dat_vault_key = KEY.into();
+        c.allow_plain_http = false;
+        let text = engine::check_key(&c);
+        assert!(
+            text.contains("allow_plain_http") && !text.contains(KEY),
+            "{text}"
+        );
+        assert_eq!(srv.requests().len(), before);
+        // A service fault is not "invalid".
+        c.allow_plain_http = true;
+        st.lock().unwrap().faulting.insert("CheckDVUser".into());
+        let text = engine::check_key(&c);
+        assert!(
+            text.starts_with("The key could not be checked") && !text.contains(KEY),
+            "{text}"
+        );
     }
 
     #[test]

@@ -321,6 +321,24 @@ pub fn run_task(
     Ok(outcome)
 }
 
+/// "Check key": the words for the status line or the settings dialog. A network problem is
+/// not "invalid", and nothing here holds the key.
+pub fn check_key(online: &OnlineConfig) -> String {
+    if !online.has_key() {
+        return "Enter a DatVault key first.".to_owned();
+    }
+    let result = client_for(online).and_then(|client| {
+        Vault::new(&client, &online.dat_vault_key)
+            .and_then(|v| v.check_key())
+            .map_err(online_err)
+    });
+    match result {
+        Ok(true) => "The DatVault key is valid.".to_owned(),
+        Ok(false) => "The DatVault key is not valid.".to_owned(),
+        Err(e) => format!("The key could not be checked: {e}"),
+    }
+}
+
 fn online_err(e: rv_online::Error) -> EngineError {
     EngineError::Online(e.to_string())
 }
