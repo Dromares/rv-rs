@@ -24,7 +24,7 @@ fn check_and_install_over_a_trusted_https_server() {
     // The port is only known once the server runs, and the release JSON names it.
     let port = std::sync::Arc::new(std::sync::atomic::AtomicU16::new(0));
     let p = port.clone();
-    let server = tls_server::start(move |method, path, _| {
+    let server = tls_server::start(move |method, path, _, _| {
         assert_eq!(method, "GET");
         let base = format!("https://127.0.0.1:{}", p.load(Ordering::SeqCst));
         match path {

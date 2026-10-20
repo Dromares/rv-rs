@@ -58,10 +58,10 @@ fn config() -> Arc<rustls::ServerConfig> {
     Arc::new(cfg)
 }
 
-/// Serve `answer(method, path, body)` -> `(status, body)` to every request, one request per
+/// Serve `answer(method, path, head, body)` -> `(status, body)` to every request, one request per
 /// connection. The threads end with the test process.
 pub fn start(
-    answer: impl Fn(&str, &str, &[u8]) -> (u16, Vec<u8>) + Send + Sync + 'static,
+    answer: impl Fn(&str, &str, &str, &[u8]) -> (u16, Vec<u8>) + Send + Sync + 'static,
 ) -> TlsServer {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -112,7 +112,7 @@ pub fn start(
                         Ok(n) => buf.extend_from_slice(&chunk[..n]),
                     }
                 }
-                let (status, body) = answer(method, path, &buf[head_end..]);
+                let (status, body) = answer(method, path, &head, &buf[head_end..]);
                 let reply = format!(
                     "HTTP/1.1 {status} X\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                     body.len()

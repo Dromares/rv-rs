@@ -27,7 +27,7 @@ fn wait_failed(s: &tls_server::TlsServer) {
 
 #[test]
 fn check_against_an_untrusted_https_server_is_an_error_not_a_panic() {
-    let server = tls_server::start(|_, _, _| (404, Vec::new()));
+    let server = tls_server::start(|_, _, _, _| (404, Vec::new()));
     let cfg = UpdateConfig {
         api_base: Some(server.base()),
         ..UpdateConfig::default()
@@ -43,7 +43,7 @@ fn check_against_an_untrusted_https_server_is_an_error_not_a_panic() {
 
 #[test]
 fn install_against_an_untrusted_https_server_is_an_error_not_a_panic() {
-    let server = tls_server::start(|_, _, _| (404, Vec::new()));
+    let server = tls_server::start(|_, _, _, _| (404, Vec::new()));
     let base = server.base();
     let update = Update {
         version: Version::parse("0.2.0").unwrap(),
