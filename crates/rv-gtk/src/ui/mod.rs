@@ -45,7 +45,7 @@ pub struct Args {
     pub select: Option<String>,
     /// Select this game in the list (by name).
     pub game: Option<String>,
-    /// Open this dialog at start: `settings` or `key`.
+    /// Open this dialog at start: `settings`, `settings-dirs`, `settings-rules`, `key` or `picker` (the folder picker).
     pub open: Option<String>,
     /// Start this operation once the cache is loaded: `update`, `scan`.
     pub start: Option<String>,
@@ -122,7 +122,8 @@ pub enum Msg {
     Game(Opaque<GameEvent>),
     FilterChanged(Opaque<GameFilter>),
     ScanLevelChanged(ScanLevel),
-    OpenSettings,
+    /// The settings dialog, on the page with this number.
+    OpenSettings(u32),
     OpenKey,
     SettingsApplied(Opaque<(Settings, Prefs)>),
     CloseRequested,
@@ -543,8 +544,17 @@ impl App {
             self.refresh_roms();
         }
         match self.args.open.as_deref() {
-            Some("settings") => sender.input(Msg::OpenSettings),
+            Some("settings") => sender.input(Msg::OpenSettings(0)),
+            Some("settings-dirs") => sender.input(Msg::OpenSettings(1)),
+            Some("settings-rules") => sender.input(Msg::OpenSettings(2)),
             Some("key") => sender.input(Msg::OpenKey),
+            Some("picker") => {
+                // The same call the Browse buttons make.
+                let start = self.settings.dat_root.clone();
+                pickers::pick_folder(&self.w.window, "Choose the DAT root", &start, |p| {
+                    eprintln!("rv-gtk: the picker chose {}", p.display());
+                });
+            }
             _ => {}
         }
         match self.args.start.as_deref() {
@@ -822,7 +832,7 @@ impl SimpleComponent for App {
         update.connect_clicked(input(|| Msg::RunTask(Task::UpdateDats { all: false })));
         update_all.connect_clicked(input(|| Msg::RunTask(Task::UpdateDats { all: true })));
         scan.connect_clicked(input(|| Msg::ScanSelected));
-        settings_btn.connect_clicked(input(|| Msg::OpenSettings));
+        settings_btn.connect_clicked(input(|| Msg::OpenSettings(0)));
         key_btn.connect_clicked(input(|| Msg::OpenKey));
         scan_level.connect_selected_notify({
             let s = sender.input_sender().clone();
@@ -928,6 +938,9 @@ impl SimpleComponent for App {
                     }
                 }
                 self.update_buttons();
+                if self.closing {
+                    self.finish_close();
+                }
             }
             Msg::ScanSelected => {
                 let level = self.prefs.scan_level;
@@ -1011,7 +1024,7 @@ impl SimpleComponent for App {
                 self.refresh_games(keep);
             }
             Msg::ScanLevelChanged(level) => self.prefs.scan_level = level,
-            Msg::OpenSettings => {
+            Msg::OpenSettings(page) => {
                 if self.busy() {
                     return;
                 }
@@ -1020,6 +1033,7 @@ impl SimpleComponent for App {
                     &self.w.window,
                     &self.settings,
                     &self.prefs,
+                    page,
                     move |settings, prefs| {
                         let _ = s.send(Msg::SettingsApplied(Opaque((settings, prefs))));
                     },
@@ -1141,7 +1155,7 @@ fn install_css() {
         ".rv-banner { background-color: #f8d7da; color: #58151c; padding: 8px; }\n\
          .rv-key-chip { border: 1px solid rgba(0,0,0,0.35); border-radius: 3px; padding: 2px 8px; }\n",
     );
-    provider.load_from_data(&css);
+    provider.load_from_string(&css);
     if let Some(display) = gdk::Display::default() {
         gtk4::style_context_add_provider_for_display(
             &display,

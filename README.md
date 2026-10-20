@@ -25,7 +25,7 @@ The library crates sit under the two binaries (`rv-cli`, `rv-gtk`); nothing depe
 
 ## Build
 
-You need a Rust toolchain (edition 2021) and the GTK4 development files (`libgtk-4-dev` on Debian/Ubuntu, `gtk4` on Arch).
+You need a Rust toolchain (edition 2021) and GTK 4.12 or newer with its development files (`libgtk-4-dev` on Debian/Ubuntu 24.04, `gtk4` on Arch).
 
 ```sh
 cargo build --workspace

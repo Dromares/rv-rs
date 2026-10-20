@@ -71,6 +71,7 @@ pub enum GameEvent {
 
 pub struct GameGrid {
     scroll: gtk4::ScrolledWindow,
+    view: gtk4::ColumnView,
     list: VirtualList,
     selection: gtk4::SingleSelection,
     rows: RefCell<Vec<GameRow>>,
@@ -153,6 +154,7 @@ impl GameGrid {
 
         let grid = Rc::new(GameGrid {
             scroll,
+            view: view.clone(),
             list,
             selection: selection.clone(),
             rows: RefCell::new(Vec::new()),
@@ -253,12 +255,19 @@ impl GameGrid {
         self.rows.borrow().len()
     }
 
+    /// Bring row `position` into view.
+    fn scroll_to(&self, position: u32) {
+        self.view
+            .scroll_to(position, None, gtk4::ListScrollFlags::NONE, None);
+    }
+
     /// Select the game with this name, if the list has it (for `--game`).
     pub fn select_name(&self, name: &str) -> bool {
         let position = self.rows.borrow().iter().position(|r| r.name == name);
         match position {
             Some(p) => {
                 self.selection.set_selected(p as u32);
+                self.scroll_to(p as u32);
                 true
             }
             None => false,

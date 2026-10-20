@@ -408,7 +408,6 @@ fn rules_page(s: &Shared) -> gtk4::Paned {
             }
         }
     };
-    fill(Some(0));
     list.connect_row_selected(clone!(
         #[strong]
         s,
@@ -424,9 +423,8 @@ fn rules_page(s: &Shared) -> gtk4::Paned {
             }
         }
     ));
-    if let Some(row) = list.row_at_index(0) {
-        list.select_row(Some(&row));
-    }
+    // Selecting the first rule shows its form: the handler above builds it.
+    fill(Some(0));
 
     let new_key = gtk4::Entry::new();
     new_key.set_placeholder_text(Some("RomVault/Console/NES"));
@@ -747,6 +745,7 @@ pub fn show(
     parent: &gtk4::Window,
     settings: &Settings,
     prefs: &Prefs,
+    page: u32,
     apply: impl Fn(Settings, Prefs) + 'static,
 ) {
     let window = gtk4::Window::builder()
@@ -754,7 +753,7 @@ pub fn show(
         .transient_for(parent)
         .modal(true)
         .default_width(820)
-        .default_height(620)
+        .default_height(720)
         .build();
     let s: Shared = Rc::new(RefCell::new(settings.clone()));
     let p = Rc::new(RefCell::new(prefs.clone()));
@@ -789,6 +788,7 @@ pub fn show(
     ignore.append(&patterns);
     book.append_page(&ignore, Some(&gtk4::Label::new(Some("Ignore"))));
     book.set_vexpand(true);
+    book.set_current_page(Some(page));
 
     let error = gtk4::Label::new(None);
     error.set_xalign(0.0);
