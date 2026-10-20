@@ -1367,6 +1367,7 @@ dependencies = [
  "rv-dat",
  "rv-online",
  "rv-scan",
+ "rv-update",
 ]
 
 [[package]]

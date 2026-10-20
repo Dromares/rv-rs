@@ -43,13 +43,15 @@ pub struct Args {
     pub prefs: PathBuf,
     /// The online settings (the DatVault key and the rest).
     pub online: PathBuf,
+    /// The update settings (check at start, pre-releases).
+    pub update: PathBuf,
     /// Select this tree row (`RomVault/Console/NES`) once the cache is loaded.
     pub select: Option<String>,
     /// Select this game in the list (by name).
     pub game: Option<String>,
     /// Open this dialog at start: `settings`, `settings-dirs`, `settings-rules`, `key` or `picker` (the folder picker).
     pub open: Option<String>,
-    /// Start this operation once the cache is loaded: `update`, `scan`.
+    /// Start this operation once the cache is loaded: `update`, `scan`, `check-updates`.
     pub start: Option<String>,
     /// Load, report what is on screen, and quit.
     pub smoke: bool,
@@ -62,6 +64,7 @@ impl Args {
             config: PathBuf::from(engine::DEFAULT_CONFIG),
             prefs: prefs::default_path(),
             online: rv_online::config::default_path(),
+            update: rv_update::config::default_path(),
             select: None,
             game: None,
             open: None,
@@ -76,6 +79,7 @@ impl Args {
                 "--config" => out.config = PathBuf::from(value("--config")?),
                 "--prefs" => out.prefs = PathBuf::from(value("--prefs")?),
                 "--online-config" => out.online = PathBuf::from(value("--online-config")?),
+                "--update-config" => out.update = PathBuf::from(value("--update-config")?),
                 "--select" => out.select = Some(value("--select")?),
                 "--game" => out.game = Some(value("--game")?),
                 "--open" => out.open = Some(value("--open")?),
@@ -133,6 +137,18 @@ pub enum Msg {
     /// The settings dialog, on the page with this number.
     OpenSettings(u32),
     OpenKey,
+    /// The Help menu's "Check for updates", or the check at start (`startup`: say nothing when
+    /// there is nothing to report).
+    CheckUpdates {
+        startup: bool,
+    },
+    UpdateChecked {
+        startup: bool,
+        result: Opaque<Result<rv_update::Check, String>>,
+    },
+    /// The user said yes to the question about this release.
+    InstallUpdate(Opaque<rv_update::Update>),
+    UpdateInstalled(Opaque<Result<rv_update::Installed, String>>),
     /// The Online menu.
     CheckKey,
     KeyChecked(String),
@@ -201,6 +217,8 @@ pub struct App {
     /// A tick box changed since the cache was saved.
     dirty: bool,
     first_load: bool,
+    /// A check or an install of an update is under way.
+    updating: bool,
 }
 
 fn set_text_bold(label: &gtk4::Label, text: &str) {
@@ -296,6 +314,32 @@ impl App {
 
     fn status(&self, text: &str) {
         self.w.status.set_text(text);
+    }
+
+    /// The question before anything is downloaded. Cancel is the default button: Enter or
+    /// Escape never installs.
+    fn ask_to_install(&self, up: rv_update::Update, sender: &ComponentSender<App>) {
+        let target = std::env::current_exe().unwrap_or_default();
+        let (message, detail) = engine::update_question(&up, &target);
+        self.status(&message);
+        let dialog = gtk4::AlertDialog::builder()
+            .modal(true)
+            .message(message)
+            .detail(detail)
+            .buttons(["Cancel", "Install"])
+            .cancel_button(0)
+            .default_button(0)
+            .build();
+        let tx = sender.input_sender().clone();
+        dialog.choose(
+            Some(&self.w.window),
+            gtk4::gio::Cancellable::NONE,
+            move |answer| {
+                if answer == Ok(1) {
+                    let _ = tx.send(Msg::InstallUpdate(Opaque(up)));
+                }
+            },
+        );
     }
 
     fn show_banner(&self, text: Option<&str>) {
@@ -600,6 +644,7 @@ impl App {
             Some("settings-dirs") => sender.input(Msg::OpenSettings(1)),
             Some("settings-rules") => sender.input(Msg::OpenSettings(2)),
             Some("settings-online") => sender.input(Msg::OpenSettings(4)),
+            Some("settings-updates") => sender.input(Msg::OpenSettings(5)),
             Some("key") => sender.input(Msg::OpenKey),
             Some("picker") => {
                 // The same call the Browse buttons make.
@@ -613,7 +658,13 @@ impl App {
         match self.args.start.as_deref() {
             Some("update") => sender.input(Msg::RunTask(Task::UpdateDats { all: false })),
             Some("scan") => sender.input(Msg::ScanSelected),
+            Some("check-updates") => sender.input(Msg::CheckUpdates { startup: false }),
             _ => {}
+        }
+        // The check at start is a setting, off unless the user turned it on. The smoke test
+        // never goes online.
+        if !self.args.smoke && engine::check_on_startup(&self.args.update) {
+            sender.input(Msg::CheckUpdates { startup: true });
         }
         if self.args.smoke {
             self.smoke_report();
@@ -774,6 +825,28 @@ impl SimpleComponent for App {
         popover.set_child(Some(&items));
         online.set_popover(Some(&popover));
         toolbar.append(&online);
+        // Help: the one item so far. It works without a database, so update_buttons leaves it
+        // alone.
+        let help = gtk4::MenuButton::new();
+        help.set_label("Help");
+        let help_pop = gtk4::Popover::new();
+        let help_items = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+        let check_updates = gtk4::Button::with_label("Check for updates");
+        check_updates.add_css_class("flat");
+        check_updates.set_tooltip_text(Some(
+            "Asks GitHub whether a newer release exists. Nothing is installed unless you say yes.",
+        ));
+        {
+            let (s, p) = (sender.input_sender().clone(), help_pop.clone());
+            check_updates.connect_clicked(move |_| {
+                p.popdown();
+                let _ = s.send(Msg::CheckUpdates { startup: false });
+            });
+        }
+        help_items.append(&check_updates);
+        help_pop.set_child(Some(&help_items));
+        help.set_popover(Some(&help_pop));
+        toolbar.append(&help);
         let spacer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
         spacer.set_hexpand(true);
         toolbar.append(&spacer);
@@ -1033,6 +1106,7 @@ impl SimpleComponent for App {
             closing: false,
             dirty: false,
             first_load: true,
+            updating: false,
             args,
         };
         app.update_buttons();
@@ -1171,11 +1245,87 @@ impl SimpleComponent for App {
                     &self.settings,
                     &self.prefs,
                     &self.args.online,
+                    &self.args.update,
                     page,
                     move |settings, prefs| {
                         let _ = s.send(Msg::SettingsApplied(Opaque((settings, prefs))));
                     },
                 );
+            }
+            Msg::CheckUpdates { startup } => {
+                if self.updating {
+                    return;
+                }
+                self.updating = true;
+                if !startup {
+                    self.status("Checking for updates...");
+                }
+                let (tx, conf) = (sender.input_sender().clone(), self.args.update.clone());
+                worker(move || {
+                    let result = engine::check_for_updates(&conf);
+                    let _ = tx.send(Msg::UpdateChecked {
+                        startup,
+                        result: Opaque(result),
+                    });
+                });
+            }
+            Msg::UpdateChecked {
+                startup,
+                result: Opaque(result),
+            } => {
+                self.updating = false;
+                match result {
+                    Err(e) if startup => eprintln!("rv-gtk: update check at start: {e}"),
+                    Err(e) => self.show_banner(Some(&format!("Could not check for updates: {e}"))),
+                    Ok(rv_update::Check::NothingPublished) if !startup => self
+                        .status("No release is published yet, so there is nothing to update to."),
+                    Ok(rv_update::Check::UpToDate { current, latest }) if !startup => {
+                        self.status(&format!(
+                            "rv-gtk {current} is up to date (the newest release is {latest})."
+                        ))
+                    }
+                    Ok(rv_update::Check::Available(up)) => self.ask_to_install(up, &sender),
+                    Ok(_) => {}
+                }
+            }
+            Msg::InstallUpdate(Opaque(up)) => {
+                if self.updating {
+                    return;
+                }
+                let target = match std::env::current_exe() {
+                    Ok(t) => t,
+                    Err(e) => {
+                        self.show_banner(Some(&format!("Cannot tell where rv-gtk is: {e}")));
+                        return;
+                    }
+                };
+                self.updating = true;
+                self.status(&format!("Downloading version {}...", up.version));
+                let tx = sender.input_sender().clone();
+                worker(move || {
+                    let result = engine::install_update(&up, &target);
+                    let _ = tx.send(Msg::UpdateInstalled(Opaque(result)));
+                });
+            }
+            Msg::UpdateInstalled(Opaque(result)) => {
+                self.updating = false;
+                match result {
+                    Ok(done) => {
+                        self.status(&format!(
+                            "Updated to version {}. Restart rv-gtk to use it.",
+                            done.version
+                        ));
+                        self.show_banner(Some(&format!(
+                            "rv-gtk was updated to version {}. The old program is kept as {}. Restart rv-gtk to use the new one.",
+                            done.version,
+                            done.backup.as_ref().map_or_else(
+                                || "(there was none)".to_owned(),
+                                |b| b.display().to_string()
+                            )
+                        )));
+                    }
+                    Err(e) => self.show_banner(Some(&e)),
+                }
             }
             Msg::OpenKey => key::show(&self.w.window),
             Msg::CheckKey => match self.online_config(false) {
