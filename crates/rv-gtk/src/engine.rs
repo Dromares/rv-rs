@@ -321,8 +321,8 @@ impl Outcome {
                 }
             }
             Outcome::Fixed(r) => format!(
-                "Fix: {} missing files made, {} moved, {} deleted, {} left alone{}{}",
-                r.fixed,
+                "Fix: {} made, {} moved, {} deleted, {} left alone{}{}",
+                noun(r.fixed as usize, "missing file"),
                 r.count(rv_fix::action::TO_SORT)
                     + r.count(rv_fix::action::TO_CORRUPT)
                     + r.count(rv_fix::action::ARCHIVE_TO_SORT)
@@ -545,8 +545,13 @@ pub fn plan_text(plan: &FixPlan, limit: usize) -> String {
         out.push_str(&format!("  {n:>8}  {}\n", a.name()));
     }
     out.push_str(&format!(
-        "  {:>8}  wanted files nothing can make\n\n",
-        plan.still_missing
+        "  {:>8}  wanted {} nothing can make\n\n",
+        plan.still_missing,
+        if plan.still_missing == 1 {
+            "file"
+        } else {
+            "files"
+        }
     ));
     for (a, path) in plan.items.iter().take(limit) {
         out.push_str(&format!("{}: {path}\n", a.name()));
