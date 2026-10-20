@@ -149,6 +149,8 @@ impl TreeView {
                 let icon = Painted::new(FOLDER_SIZE, FOLDER_SIZE);
                 let label = gtk4::Label::new(None);
                 label.set_xalign(0.0);
+                // A long name gives up its tail ("...") before the counts are cut off.
+                label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
                 let counts = gtk4::Label::new(None);
                 counts.set_xalign(0.0);
                 counts.add_css_class("dim-label");
@@ -241,10 +243,11 @@ impl TreeView {
                 .expect("counts");
             label.set_text(&node.label);
             counts.set_text(&node.counts);
+            // The whole name, for a row that had to give up its tail.
             if node.dats.is_empty() {
-                row.set_tooltip_text(None);
+                row.set_tooltip_text(Some(&node.label));
             } else {
-                row.set_tooltip_text(Some(&node.dats.join("\n")));
+                row.set_tooltip_text(Some(&format!("{}\n{}", node.label, node.dats.join("\n"))));
             }
             let (kind, shape) = (node.kind, node.icon);
             icon.set_painter(Box::new(move |cr, _, _| draw_folder(cr, shape, kind)));
@@ -282,6 +285,8 @@ impl TreeView {
         scroll.set_child(Some(&view));
         scroll.set_hexpand(true);
         scroll.set_vexpand(true);
+        // Rows are as wide as the pane and ellipsize; nothing is cut off at the edge.
+        scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
 
         let quiet = Rc::new(std::cell::Cell::new(false));
         selection.connect_selected_item_notify(clone!(

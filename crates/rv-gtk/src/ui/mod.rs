@@ -107,6 +107,8 @@ pub struct Finished {
     pub took: Duration,
     /// Set when the load fell back to the cache's backup file.
     pub notice: Option<String>,
+    /// Set when there was no cache file and the load made a new empty database.
+    pub created: bool,
 }
 
 #[derive(Debug)]
@@ -169,6 +171,8 @@ struct Progress {
     errors: gtk4::TextBuffer,
     error_expander: gtk4::Expander,
     error_count: std::cell::Cell<usize>,
+    /// Cancel was pressed: the engine stops after the file it is on, and says so until then.
+    cancelling: std::cell::Cell<bool>,
     /// Which run the pulsing of the bar belongs to; a new run stops the old timer.
     pulse: Rc<std::cell::Cell<u64>>,
 }
@@ -240,6 +244,21 @@ fn set_bar(bar: &gtk4::ProgressBar, done: u64, total: u64) {
     } else {
         bar.set_fraction((done as f64 / total as f64).clamp(0.0, 1.0));
         bar.set_text(Some(&format!("{done} / {total}")));
+    }
+}
+
+/// Shown from the click on Cancel until the engine has stopped; it only checks between files.
+const CANCELLING: &str = "Cancelling... finishing the file in progress";
+
+/// The status line after the cache was read.
+fn load_status(took: Duration, rows: usize, created: bool) -> String {
+    if created {
+        format!("No cache file yet: started a new empty database; {rows} rows in the tree")
+    } else {
+        format!(
+            "Cache loaded in {:.2} s; {rows} rows in the tree",
+            took.as_secs_f64()
+        )
     }
 }
 
@@ -324,6 +343,7 @@ impl App {
                     db: o.db,
                     result: Ok(None),
                     took: o.took,
+                    created: o.created,
                 })
                 .map_err(|e| e.to_string());
             let _ = tx.send(Msg::Loaded(Opaque(result)));
@@ -365,6 +385,7 @@ impl App {
                 result,
                 took: start.elapsed(),
                 notice: None,
+                created: false,
             })));
         });
     }
@@ -397,6 +418,7 @@ impl App {
         p.cancel.set_sensitive(!indeterminate);
         p.errors.set_text("");
         p.error_count.set(0);
+        p.cancelling.set(false);
         p.error_expander.set_visible(false);
         p.revealer.set_reveal_child(true);
         let run = p.pulse.get() + 1;
@@ -417,6 +439,8 @@ impl App {
     fn progress(&self, event: ProgressEvent) {
         let p = &self.w.progress;
         match event {
+            // Keep saying "Cancelling" until the engine stops; its own titles would hide it.
+            ProgressEvent::Text(_) if p.cancelling.get() => {}
             ProgressEvent::Text(t) => set_text_bold(&p.title, &t),
             ProgressEvent::Item(t) => p.item.set_text(&t),
             ProgressEvent::Detail(t) => p.detail.set_text(&t),
@@ -507,12 +531,8 @@ impl App {
         ));
     }
 
-    fn report_load_time(&self, took: Duration) {
-        self.status(&format!(
-            "Cache loaded in {:.2} s; {} rows in the tree",
-            took.as_secs_f64(),
-            count_rows(&self.tree_rows)
-        ));
+    fn report_load_time(&self, took: Duration, created: bool) {
+        self.status(&load_status(took, count_rows(&self.tree_rows), created));
         let started = self.args.started;
         eprintln!(
             "rv-gtk: cache loaded in {} ms ({} ms after start); waiting for the first frame",
@@ -742,6 +762,13 @@ impl SimpleComponent for App {
         info_fields.add_css_class("dim-label");
         let info_counts = gtk4::Label::new(None);
         info_counts.set_xalign(0.0);
+        // Keep the room of a DAT's title, four fields and the counts, so that the filter row and
+        // the lists do not move when the selection changes between a folder and a DAT.
+        let line = info_title.create_pango_layout(Some("Ag")).pixel_size().1;
+        info_title.set_height_request(line);
+        info_fields.set_height_request(line * INFO_FIELD_LINES);
+        info_fields.set_yalign(0.0);
+        info_counts.set_height_request(line);
 
         let filter_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
         filter_box.set_margin_start(6);
@@ -826,6 +853,47 @@ impl SimpleComponent for App {
         page.append(&progress.revealer);
         page.append(&status);
         root.set_child(Some(&page));
+
+        // Tab order: toolbar, tree, filter row, games, ROMs, then the progress panel and round again.
+        let first_filter = filter_box.first_child().expect("the filter tick boxes");
+        let focus_list = |scroll: &gtk4::ScrolledWindow| scroll.child();
+        let (games_list, roms_list) = (focus_list(games.widget()), focus_list(roms.widget()));
+        tab_hops(
+            tree.widget(),
+            Box::new({
+                let first_filter = first_filter.clone();
+                move || Some(first_filter.clone())
+            }),
+            Box::new({
+                let settings_btn = settings_btn.clone();
+                move || Some(settings_btn.clone().upcast())
+            }),
+        );
+        tab_hops(
+            games.widget(),
+            Box::new({
+                let roms_list = roms_list.clone();
+                move || roms_list.clone()
+            }),
+            Box::new({
+                let search = search.clone();
+                move || Some(search.clone().upcast())
+            }),
+        );
+        tab_hops(
+            roms.widget(),
+            Box::new({
+                let (cancel, update) = (progress.cancel.clone(), update.clone());
+                move || {
+                    Some(if cancel.is_mapped() && cancel.is_sensitive() {
+                        cancel.clone().upcast()
+                    } else {
+                        update.clone().upcast()
+                    })
+                }
+            }),
+            Box::new(move || games_list.clone()),
+        );
         root.set_titlebar(Some(&gtk4::HeaderBar::new()));
 
         // Wire the buttons.
@@ -930,7 +998,7 @@ impl SimpleComponent for App {
                     Ok(f) => {
                         self.db = Some(f.db);
                         self.show_tree(f.tree);
-                        self.report_load_time(f.took);
+                        self.report_load_time(f.took, f.created);
                         if let Some(n) = &f.notice {
                             self.show_banner(Some(n));
                         }
@@ -992,6 +1060,9 @@ impl SimpleComponent for App {
                 if let Some(t) = &self.task {
                     t.cancel.cancel();
                     self.w.progress.cancel.set_sensitive(false);
+                    self.w.progress.cancelling.set(true);
+                    set_text_bold(&self.w.progress.title, CANCELLING);
+                    self.status(CANCELLING);
                 }
             }
             Msg::Tree(Opaque(e)) => match e {
@@ -1153,20 +1224,65 @@ fn build_progress(sender: &ComponentSender<App>) -> Progress {
         errors,
         error_expander,
         error_count: std::cell::Cell::new(0),
+        cancelling: std::cell::Cell::new(false),
         pulse: Rc::default(),
     }
 }
 
+/// A list takes Tab for its own rows, one row per press, so a keyboard user could never leave it.
+/// Tab and Shift+Tab on `list` move the focus to what `next` and `prev` give instead; the arrow
+/// keys still move between rows.
+fn tab_hops(
+    list: &gtk4::ScrolledWindow,
+    next: Box<dyn Fn() -> Option<gtk4::Widget>>,
+    prev: Box<dyn Fn() -> Option<gtk4::Widget>>,
+) {
+    let keys = gtk4::EventControllerKey::new();
+    keys.set_propagation_phase(gtk4::PropagationPhase::Capture);
+    keys.connect_key_pressed(move |_, key, _, state| {
+        let plain =
+            !state.intersects(gdk::ModifierType::CONTROL_MASK | gdk::ModifierType::ALT_MASK);
+        let target = match key {
+            gdk::Key::Tab if plain && state.contains(gdk::ModifierType::SHIFT_MASK) => prev(),
+            gdk::Key::Tab if plain => next(),
+            gdk::Key::ISO_Left_Tab if plain => prev(),
+            _ => return glib::Propagation::Proceed,
+        };
+        match target {
+            Some(w) if w.grab_focus() => glib::Propagation::Stop,
+            _ => glib::Propagation::Proceed,
+        }
+    });
+    list.add_controller(keys);
+}
+
+/// Lines of DAT fields (description, version, author, date) the info panel always has room for.
+const INFO_FIELD_LINES: i32 = 4;
+
 /// The smallest the main window may be made.
 const MIN_WINDOW: (i32, i32) = (1000, 600);
+
+/// The app's own rules, after the status colours. WCAG contrast figures are against the Adwaita
+/// light and dark window backgrounds.
+const APP_CSS: &str = "\
+    /* The theme's focus ring is 2.4:1 on light. This blue is 3.5:1 on the light window and \
+       3.3:1 on the dark one (a darker blue fails 3:1 on dark). */\n\
+    :focus-visible { outline-color: #3584e4; outline-width: 2px; }\n\
+    /* Adwaita dims at 0.55, which fails 4.5:1 for the counts, info text, status line and headers. */\n\
+    .dim-label { opacity: 0.75; }\n\
+    /* The theme's header text is a fixed grey (#979a9b light, #90908f dark). */\n\
+    columnview.view > header > button { color: @theme_fg_color; }\n\
+    /* The 0 / 5 text on the scan bars: the theme sets it at 40% of the text colour (2.2:1). */\n\
+    progressbar > text { color: @theme_fg_color; }\n\
+    /* Tinted over the window colour, so it follows the light or dark scheme. */\n\
+    .rv-banner { background-color: alpha(#e01b24, 0.18); border-left: 4px solid #e01b24; \
+                 padding: 8px; }\n\
+    .rv-key-chip { border: 1px solid rgba(0,0,0,0.35); border-radius: 3px; padding: 2px 8px; }\n";
 
 fn install_css() {
     let provider = gtk4::CssProvider::new();
     let mut css = crate::colours::css();
-    css.push_str(
-        ".rv-banner { background-color: #f8d7da; color: #58151c; padding: 8px; }\n\
-         .rv-key-chip { border: 1px solid rgba(0,0,0,0.35); border-radius: 3px; padding: 2px 8px; }\n",
-    );
+    css.push_str(APP_CSS);
     provider.load_from_string(&css);
     if let Some(display) = gdk::Display::default() {
         gtk4::style_context_add_provider_for_display(
@@ -1189,4 +1305,18 @@ pub fn run(args: Args) {
             .next()
             .unwrap_or_else(|| "rv-gtk".to_owned())])
         .run::<App>(args);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_missing_cache_is_not_reported_as_loaded() {
+        let loaded = load_status(Duration::from_millis(190), 29, false);
+        assert_eq!(loaded, "Cache loaded in 0.19 s; 29 rows in the tree");
+        let created = load_status(Duration::from_millis(0), 2, true);
+        assert!(created.contains("new empty database"), "{created}");
+        assert!(!created.contains("loaded"), "{created}");
+    }
 }
