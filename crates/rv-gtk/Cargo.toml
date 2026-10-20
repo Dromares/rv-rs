@@ -12,8 +12,13 @@ rv-core = { workspace = true }
 rv-cache = { workspace = true }
 rv-dat = { workspace = true }
 rv-scan = { workspace = true }
+rv-online = { workspace = true }
 gtk4 = { version = "0.11.5", features = ["v4_12"] }
 relm4 = "0.11.0"
+
+[dev-dependencies]
+rv-online = { workspace = true, features = ["mock"] }
+rv-archive = { workspace = true }
 
 [lib]
 name = "rv_gtk"

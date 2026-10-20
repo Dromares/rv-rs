@@ -41,6 +41,8 @@ use tree_view::{TreeEvent, TreeView};
 pub struct Args {
     pub config: PathBuf,
     pub prefs: PathBuf,
+    /// The online settings (the DatVault key and the rest).
+    pub online: PathBuf,
     /// Select this tree row (`RomVault/Console/NES`) once the cache is loaded.
     pub select: Option<String>,
     /// Select this game in the list (by name).
@@ -59,6 +61,7 @@ impl Args {
         let mut out = Args {
             config: PathBuf::from(engine::DEFAULT_CONFIG),
             prefs: prefs::default_path(),
+            online: rv_online::config::default_path(),
             select: None,
             game: None,
             open: None,
@@ -72,6 +75,7 @@ impl Args {
             match a.as_str() {
                 "--config" => out.config = PathBuf::from(value("--config")?),
                 "--prefs" => out.prefs = PathBuf::from(value("--prefs")?),
+                "--online-config" => out.online = PathBuf::from(value("--online-config")?),
                 "--select" => out.select = Some(value("--select")?),
                 "--game" => out.game = Some(value("--game")?),
                 "--open" => out.open = Some(value("--open")?),
@@ -129,6 +133,11 @@ pub enum Msg {
     /// The settings dialog, on the page with this number.
     OpenSettings(u32),
     OpenKey,
+    /// The Online menu.
+    CheckKey,
+    KeyChecked(String),
+    DatVaultUpdate,
+    UpdateMia(bool),
     SettingsApplied(Opaque<(Settings, Prefs)>),
     CloseRequested,
 }
@@ -156,6 +165,7 @@ struct Widgets {
     scan_level: gtk4::DropDown,
     find_fixes: gtk4::Button,
     fix: gtk4::Button,
+    online: gtk4::MenuButton,
     settings: gtk4::Button,
 }
 
@@ -267,6 +277,23 @@ impl App {
         self.task.is_some()
     }
 
+    /// The online settings as they are in the file now, so that a key typed in the settings
+    /// dialog counts at once. Without a key there is nothing to ask the service. `needs_db` for
+    /// the operations that change the database.
+    fn online_config(&self, needs_db: bool) -> Result<rv_online::config::OnlineConfig, String> {
+        if self.busy() || (needs_db && self.db.is_none()) {
+            return Err("Wait until the current operation is finished.".to_owned());
+        }
+        let cfg =
+            rv_online::config::OnlineConfig::load(&self.args.online).map_err(|e| e.to_string())?;
+        if !cfg.has_key() {
+            return Err(
+                "A DatVault key is required: enter it in Settings, on the Online page.".to_owned(),
+            );
+        }
+        Ok(cfg)
+    }
+
     fn status(&self, text: &str) {
         self.w.status.set_text(text);
     }
@@ -288,6 +315,7 @@ impl App {
             b.set_sensitive(ready);
         }
         self.w.scan_level.set_sensitive(ready);
+        self.w.online.set_sensitive(ready);
         // Settings has to work when the cache could not be loaded: that is how it gets fixed.
         self.w.settings.set_sensitive(!self.busy());
         // Find Fixes and Fix are rv-fix, Phase 5b: present, off, with the reason.
@@ -571,6 +599,7 @@ impl App {
             Some("settings") => sender.input(Msg::OpenSettings(0)),
             Some("settings-dirs") => sender.input(Msg::OpenSettings(1)),
             Some("settings-rules") => sender.input(Msg::OpenSettings(2)),
+            Some("settings-online") => sender.input(Msg::OpenSettings(4)),
             Some("key") => sender.input(Msg::OpenKey),
             Some("picker") => {
                 // The same call the Browse buttons make.
@@ -718,6 +747,33 @@ impl SimpleComponent for App {
         toolbar.append(&scans);
         toolbar.append(&find_fixes);
         toolbar.append(&fix);
+        let online = gtk4::MenuButton::new();
+        online.set_label("Online");
+        online.set_tooltip_text(Some("DatVault and MIA"));
+        let popover = gtk4::Popover::new();
+        let items = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+        type MenuItem = (&'static str, fn() -> Msg);
+        let menu_items: [MenuItem; 4] = [
+            ("Check DatVault key", || Msg::CheckKey),
+            ("Update DATs from DatVault", || Msg::DatVaultUpdate),
+            ("Update MIA", || Msg::UpdateMia(false)),
+            ("Update MIA (apply again even if unchanged)", || {
+                Msg::UpdateMia(true)
+            }),
+        ];
+        for (label, msg) in menu_items {
+            let b = gtk4::Button::with_label(label);
+            b.add_css_class("flat");
+            let (s, p) = (sender.input_sender().clone(), popover.clone());
+            b.connect_clicked(move |_| {
+                p.popdown();
+                let _ = s.send(msg());
+            });
+            items.append(&b);
+        }
+        popover.set_child(Some(&items));
+        online.set_popover(Some(&popover));
+        toolbar.append(&online);
         let spacer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
         spacer.set_hexpand(true);
         toolbar.append(&spacer);
@@ -964,6 +1020,7 @@ impl SimpleComponent for App {
                 scan_level,
                 find_fixes,
                 fix,
+                online,
                 settings: settings_btn,
             },
             prefs,
@@ -1113,6 +1170,7 @@ impl SimpleComponent for App {
                     &self.w.window,
                     &self.settings,
                     &self.prefs,
+                    &self.args.online,
                     page,
                     move |settings, prefs| {
                         let _ = s.send(Msg::SettingsApplied(Opaque((settings, prefs))));
@@ -1120,6 +1178,25 @@ impl SimpleComponent for App {
                 );
             }
             Msg::OpenKey => key::show(&self.w.window),
+            Msg::CheckKey => match self.online_config(false) {
+                Ok(cfg) => {
+                    self.status("Checking the DatVault key...");
+                    let tx = sender.input_sender().clone();
+                    worker(move || {
+                        let _ = tx.send(Msg::KeyChecked(engine::check_key(&cfg)));
+                    });
+                }
+                Err(e) => self.show_banner(Some(&e)),
+            },
+            Msg::KeyChecked(text) => self.status(&text),
+            Msg::DatVaultUpdate => match self.online_config(true) {
+                Ok(online) => self.run_task(Task::DatVaultUpdate { online }, &sender),
+                Err(e) => self.show_banner(Some(&e)),
+            },
+            Msg::UpdateMia(force) => match self.online_config(true) {
+                Ok(online) => self.run_task(Task::UpdateMia { force, online }, &sender),
+                Err(e) => self.show_banner(Some(&e)),
+            },
             Msg::SettingsApplied(Opaque((settings, prefs))) => {
                 match engine::check_paths(&settings, prefs.allow_protected_paths)
                     .and_then(|_| engine::write_settings(&self.config_path, &settings))

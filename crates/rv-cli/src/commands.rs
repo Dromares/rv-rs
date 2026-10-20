@@ -98,6 +98,9 @@ fn configured_paths(args: &Args, s: &Settings) -> Vec<(String, PathBuf)> {
 }
 
 pub fn execute(args: &Args, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    if args.command == "datvault" {
+        return crate::online::datvault(args, out, err);
+    }
     // Before anything is read: the paths, the live library.
     let settings = match settings_for(args) {
         Ok(s) => s,
@@ -132,6 +135,7 @@ pub fn execute(args: &Args, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
         "fix" => fix_cmd(&mut cx),
         "report" => report_cmd(&mut cx),
         "status" => status_cmd(&mut cx),
+        "mia" => mia_cmd(&mut cx),
         other => {
             let _ = writeln!(cx.err, "rv: unknown command {other}");
             exit::USAGE
@@ -461,5 +465,79 @@ fn status_cmd(cx: &mut Ctx<'_>) -> i32 {
     if !any {
         let _ = writeln!(cx.out, "(the cache is empty)");
     }
+    exit::OK
+}
+
+fn mia_cmd(cx: &mut Ctx<'_>) -> i32 {
+    use rv_online::mia::{self, ApplyOptions, Prepared};
+    use rv_online::salt::configured_source;
+    use rv_online::Error;
+
+    let online = match crate::online::load(cx.args, cx.err) {
+        Ok(o) => o,
+        Err(c) => return c,
+    };
+    if let Err(e) = guard::check(&online.paths(), cx.args.allow_live_library) {
+        let _ = writeln!(cx.err, "rv: {e}");
+        return exit::REFUSED;
+    }
+    let client = match online.client(cx.err) {
+        Ok(c) => c,
+        Err(c) => return c,
+    };
+    let sink = progress(cx.args.verbose);
+    sink(ProgressEvent::Text("Fetching MIA Cache".into()));
+    let prepared = mia::prepare(&client, &online.cfg, &configured_source(), cx.args.force);
+    let (list, release, cache_unwritable) = match prepared {
+        Ok(Prepared::Unchanged { release }) => {
+            let _ = writeln!(cx.out, "Nothing changed, MIA release {release}");
+            return exit::OK;
+        }
+        Ok(Prepared::Ready {
+            list,
+            release,
+            cache_unwritable,
+        }) => (list, release, cache_unwritable),
+        Err(e) => {
+            let hint = match e {
+                Error::KeyRequired => {
+                    format!(". Put it in {} as dat_vault_key=...", online.path.display())
+                }
+                Error::Salt(_) => format!(" (set rom_vault_exe in {})", online.path.display()),
+                _ => String::new(),
+            };
+            let _ = writeln!(cx.err, "rv: {e}{hint}");
+            return exit::FAILED;
+        }
+    };
+    if cache_unwritable {
+        let _ = writeln!(
+            cx.err,
+            "warning: the list was fetched but could not be cached at {}",
+            online.cfg.mia_cache_path().display()
+        );
+    }
+    let mut db = match load(cx) {
+        Ok(d) => d,
+        Err(c) => return c,
+    };
+    sink(ProgressEvent::Text("Updating MIA".into()));
+    let applied = mia::apply_mia(
+        &mut db.root,
+        &list,
+        &ApplyOptions {
+            mia_days: online.cfg.mia_days,
+            force_update: cx.args.force,
+            now_ticks: mia::now_ticks(),
+        },
+    );
+    if let Err(c) = save(cx, &mut db) {
+        return c;
+    }
+    let _ = writeln!(
+        cx.out,
+        "Update complete, MIA release {release}: {} files checked, {} on the list",
+        applied.files, applied.found
+    );
     exit::OK
 }

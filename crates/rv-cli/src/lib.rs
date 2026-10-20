@@ -3,6 +3,9 @@
 //! * `update-dats`, `scan`, `fix` write the cache (and `scan`/`fix` the library); `find-fixes`,
 //!   `fix --dry-run`, `report` (it writes only into `--out`) and `status` never write the cache or
 //!   anything under `--root`.
+//! * `datvault` and `mia update` talk to the RomVault service, over `https://` unless the online
+//!   settings (`~/.config/rv-rs/online.conf`) say `allow_plain_http=1`. The DatVault key is read
+//!   from those settings and is never printed.
 //! * Every path is given. None has a default that points at the library, and a run refuses to
 //!   start when a path is inside `/mnt/HHD16TB/` unless `--allow-live-library` is given
 //!   ([`guard`]).
@@ -12,6 +15,7 @@
 pub mod args;
 mod commands;
 pub mod guard;
+mod online;
 
 use std::io::Write;
 

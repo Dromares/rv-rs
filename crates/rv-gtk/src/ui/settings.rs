@@ -17,9 +17,10 @@ use rv_core::{
     ScanLevel, Settings, ZipStructure,
 };
 
-use super::pickers::{pick_folder, pick_new_file};
+use super::pickers::{pick_existing_file, pick_folder, pick_new_file};
 use crate::engine;
 use crate::prefs::Prefs;
+use rv_online::config::OnlineConfig;
 
 type Shared = Rc<RefCell<Settings>>;
 
@@ -741,10 +742,150 @@ fn general_page(window: &gtk4::Window, s: &Shared, p: &Rc<RefCell<Prefs>>) -> gt
     g
 }
 
+type SharedOnline = Rc<RefCell<OnlineConfig>>;
+
+/// The Online page: the DatVault key and the MIA settings, kept in `online.conf`, not in
+/// `RomVault3cfg.xml`. The key is hidden while typed and never leaves this form except through
+/// the settings file (owner only) and the key check.
+fn online_page(window: &gtk4::Window, o: &SharedOnline, path: &std::path::Path) -> gtk4::Grid {
+    let g = grid();
+    let cfg = o.borrow().clone();
+    let mut row = 0;
+    let mut put = |text: &str, w: gtk4::Widget| {
+        labelled(&g, row, text, &w);
+        row += 1;
+    };
+    let key = gtk4::PasswordEntry::new();
+    key.set_show_peek_icon(true);
+    key.set_text(&cfg.dat_vault_key);
+    key.connect_changed({
+        let o = o.clone();
+        move |e| o.borrow_mut().dat_vault_key = e.text().to_string()
+    });
+    put("DatVault key", key.upcast());
+
+    let check = gtk4::Button::with_label("Check key");
+    let result = gtk4::Label::new(None);
+    result.set_xalign(0.0);
+    result.set_wrap(true);
+    result.set_selectable(true);
+    check.connect_clicked(clone!(
+        #[weak]
+        result,
+        #[strong]
+        o,
+        move |b| {
+            let c = o.borrow().clone();
+            result.set_text("Checking...");
+            b.set_sensitive(false);
+            let b = b.clone();
+            glib::spawn_future_local(async move {
+                let text = gtk4::gio::spawn_blocking(move || engine::check_key(&c))
+                    .await
+                    .unwrap_or_else(|_| "The check stopped.".to_owned());
+                result.set_text(&text);
+                b.set_sensitive(true);
+            });
+        }
+    ));
+    let checks = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    checks.append(&check);
+    checks.append(&result);
+    put("", checks.upcast());
+
+    let exe_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+    let exe = gtk4::Entry::new();
+    exe.set_hexpand(true);
+    exe.set_text(
+        &cfg.rom_vault_exe
+            .as_ref()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+    );
+    exe.set_placeholder_text(Some("ROMVault38.exe"));
+    exe.connect_changed({
+        let o = o.clone();
+        move |e| {
+            let t = e.text().to_string();
+            o.borrow_mut().rom_vault_exe = (!t.trim().is_empty()).then(|| t.into());
+        }
+    });
+    let browse = gtk4::Button::with_label("Browse...");
+    browse.connect_clicked(clone!(
+        #[weak]
+        window,
+        #[weak]
+        exe,
+        move |_| {
+            let current = exe.text().to_string();
+            pick_existing_file(
+                &window,
+                "Choose your ROMVault 3.8.0 exe",
+                &current,
+                move |p| exe.set_text(&p.to_string_lossy()),
+            );
+        }
+    ));
+    exe_row.append(&exe);
+    exe_row.append(&browse);
+    exe_row.set_tooltip_text(Some(
+        "The MIA list is encrypted with a value that is read from your own ROMVault38.exe at run time. Nothing is copied from it.",
+    ));
+    put("ROMVault 3.8.0 exe (for MIA)", exe_row.upcast());
+
+    let days = gtk4::SpinButton::with_range(1.0, 3650.0, 1.0);
+    days.set_value(cfg.mia_days as f64);
+    days.connect_value_changed({
+        let o = o.clone();
+        move |d| o.borrow_mut().mia_days = d.value() as i64
+    });
+    put("Days a missing file counts as new", days.upcast());
+
+    let cue = gtk4::CheckButton::with_label("Delete the old cue file when a DAT is updated");
+    cue.set_active(cfg.delete_old_cue_files);
+    cue.connect_toggled({
+        let o = o.clone();
+        move |c| o.borrow_mut().delete_old_cue_files = c.is_active()
+    });
+    put("", cue.upcast());
+
+    let addr = gtk4::Entry::new();
+    addr.set_placeholder_text(Some("blank: the default https:// address"));
+    addr.set_text(cfg.endpoint.as_deref().unwrap_or(""));
+    addr.connect_changed({
+        let o = o.clone();
+        move |e| {
+            let t = e.text().to_string();
+            o.borrow_mut().endpoint = (!t.trim().is_empty()).then_some(t);
+        }
+    });
+    put("Service address (advanced)", addr.upcast());
+    let plain = gtk4::CheckButton::with_label(
+        "Allow a plain http:// address (the key is sent unencrypted)",
+    );
+    plain.set_active(cfg.allow_plain_http);
+    plain.connect_toggled({
+        let o = o.clone();
+        move |c| o.borrow_mut().allow_plain_http = c.is_active()
+    });
+    put("", plain.upcast());
+
+    let note = gtk4::Label::new(Some(&format!(
+        "Saved in {}, readable by you only. Reporting found MIA files is off and is not part of this window.",
+        path.display()
+    )));
+    note.set_xalign(0.0);
+    note.set_wrap(true);
+    note.add_css_class("dim-label");
+    put("", note.upcast());
+    g
+}
+
 pub fn show(
     parent: &gtk4::Window,
     settings: &Settings,
     prefs: &Prefs,
+    online_path: &std::path::Path,
     page: u32,
     apply: impl Fn(Settings, Prefs) + 'static,
 ) {
@@ -787,8 +928,16 @@ pub fn show(
     patterns.set_vexpand(true);
     ignore.append(&patterns);
     book.append_page(&ignore, Some(&gtk4::Label::new(Some("Ignore"))));
+    let o: SharedOnline = Rc::new(RefCell::new(
+        OnlineConfig::load(online_path).unwrap_or_default(),
+    ));
+    book.append_page(
+        &online_page(&window, &o, online_path),
+        Some(&gtk4::Label::new(Some("Online"))),
+    );
     book.set_vexpand(true);
     book.set_current_page(Some(page));
+    let online_path = online_path.to_path_buf();
 
     let error = gtk4::Label::new(None);
     error.set_xalign(0.0);
@@ -830,7 +979,9 @@ pub fn show(
             settings
                 .dir_mappings
                 .retain(|m| !m.dir_path.trim().is_empty());
-            match validate(&mut settings, &prefs) {
+            match validate(&mut settings, &prefs)
+                .and_then(|()| o.borrow().save(&online_path).map_err(|e| e.to_string()))
+            {
                 Ok(()) => {
                     apply(settings, prefs);
                     window.close();

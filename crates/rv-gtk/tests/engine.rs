@@ -263,3 +263,337 @@ fn settings_are_written_back_with_what_the_file_already_had() {
     fs::write(&file, "not xml").unwrap();
     assert!(engine::read_settings(&file).is_err());
 }
+
+// ---- the online tasks, against a mock of the service on 127.0.0.1 ----------------------------
+
+mod online {
+    use super::*;
+    use rv_core::MiaStatus;
+    use rv_online::config::OnlineConfig;
+    use rv_online::datvault::{encode_group_info, DatInfo};
+    use rv_online::mia::testing::blob;
+    use rv_online::mia::MiaRecord;
+    use rv_online::mock;
+    use rv_online::salt::{sha256_hex, synthetic_exe, Salt};
+
+    const KEY: &str = "WINDOW-KEY-do-not-leak";
+    const SALT: [u8; 13] = [2, 7, 1, 8, 2, 8, 1, 8, 2, 8, 4, 5, 9];
+
+    fn config(t: &Tmp, srv: &mock::MockServer) -> OnlineConfig {
+        OnlineConfig {
+            dat_vault_key: KEY.into(),
+            endpoint: Some(srv.url()),
+            allow_plain_http: true,
+            mia_cache: Some(t.path("MIA.Cache")),
+            ..OnlineConfig::default()
+        }
+    }
+
+    fn zip(name: &str, data: &[u8]) -> Vec<u8> {
+        use rv_archive::zip::{TorrentZipWriter, ZipStructure};
+        let mut w = TorrentZipWriter::new(std::io::Cursor::new(Vec::new()), ZipStructure::ZipTrrnt)
+            .unwrap();
+        w.add_bytes(name, data, None).unwrap();
+        w.finish().unwrap().into_inner()
+    }
+
+    #[test]
+    fn the_datvault_task_downloads_newer_dats_then_updates_the_database() {
+        let t = Tmp::new("dv");
+        let s = t.settings();
+        let st = mock::state(KEY);
+        let old = DatInfo {
+            group: "ni".into(),
+            system: "nes".into(),
+            version: "1".into(),
+            date: "d1".into(),
+            dat_name: "nes.dat".into(),
+            dat_url: "u1".into(),
+            ..DatInfo::default()
+        };
+        let new = DatInfo {
+            version: "2".into(),
+            date: "d2".into(),
+            dat_url: "u2".into(),
+            ..old.clone()
+        };
+        // The seed and the DAT of version 1 are here.
+        t.write("DatRoot/Console/ni/nes.dat", b"stale, not a DAT");
+        t.write(
+            "DatRoot/Console/ni/nes.json",
+            br#"{"group":"ni","system":"nes","date":"d1","version":"1","datURL":"u1","datName":"nes.dat"}"#,
+        );
+        {
+            let mut g = st.lock().unwrap();
+            g.group_info.insert(
+                "ni".into(),
+                Some(encode_group_info(std::slice::from_ref(&new))),
+            );
+            g.files
+                .insert("ni|nes|u2".into(), zip("nes.dat", DAT.as_bytes()));
+        }
+        let srv = mock::start_service(&st);
+        let mut opened = engine::open_cache(&s, false).unwrap();
+        let out = engine::run_task(
+            &mut opened.db,
+            &s,
+            &Task::DatVaultUpdate {
+                online: config(&t, &srv),
+            },
+            false,
+            &|_: ProgressEvent| {},
+            &CancelFlag::new(),
+        )
+        .expect("datvault update");
+        assert!(
+            out.summary()
+                .starts_with("DatVault: 1 DATs downloaded, 0 removed, 0 failed; 1 DATs added"),
+            "{}",
+            out.summary()
+        );
+        assert_eq!(
+            fs::read(t.path("DatRoot/Console/ni/nes.dat")).unwrap(),
+            DAT.as_bytes()
+        );
+        assert!(t.path("test.Cache").exists());
+        assert!(!out.summary().contains(KEY));
+    }
+
+    #[test]
+    fn check_key_says_valid_invalid_or_why_not() {
+        let t = Tmp::new("ck");
+        let st = mock::state(KEY);
+        let srv = mock::start_service(&st);
+        let mut c = config(&t, &srv);
+        assert_eq!(engine::check_key(&c), "The DatVault key is valid.");
+        c.dat_vault_key = "other".into();
+        assert_eq!(engine::check_key(&c), "The DatVault key is not valid.");
+        c.dat_vault_key = "  ".into();
+        assert_eq!(engine::check_key(&c), "Enter a DatVault key first.");
+        // Plain http without the switch: refused, with the reason, and nothing is sent.
+        let before = srv.requests().len();
+        c.dat_vault_key = KEY.into();
+        c.allow_plain_http = false;
+        let text = engine::check_key(&c);
+        assert!(
+            text.contains("allow_plain_http") && !text.contains(KEY),
+            "{text}"
+        );
+        assert_eq!(srv.requests().len(), before);
+        // A service fault is not "invalid".
+        c.allow_plain_http = true;
+        st.lock().unwrap().faulting.insert("CheckDVUser".into());
+        let text = engine::check_key(&c);
+        assert!(
+            text.starts_with("The key could not be checked") && !text.contains(KEY),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn a_service_error_stops_the_task_with_words_that_do_not_hold_the_key() {
+        let t = Tmp::new("dverr");
+        let s = t.settings();
+        let st = mock::state(KEY);
+        t.write(
+            "DatRoot/x/s.json",
+            br#"{"group":"ni","system":"s","version":"1"}"#,
+        );
+        st.lock()
+            .unwrap()
+            .faulting
+            .insert("GetDVGroupInfoV2".into());
+        let srv = mock::start_service(&st);
+        let mut opened = engine::open_cache(&s, false).unwrap();
+        let e = engine::run_task(
+            &mut opened.db,
+            &s,
+            &Task::DatVaultUpdate {
+                online: config(&t, &srv),
+            },
+            false,
+            &|_: ProgressEvent| {},
+            &CancelFlag::new(),
+        )
+        .unwrap_err();
+        assert!(matches!(e, EngineError::Online(_)));
+        assert!(!e.to_string().contains(KEY), "{e}");
+        assert!(!format!("{e:?}").contains(KEY));
+    }
+
+    #[test]
+    fn the_online_tasks_do_not_run_in_a_protected_directory() {
+        let t = Tmp::new("dvguard");
+        let mut s = t.settings();
+        s.dat_root = "/mnt/HHD16TB/DatRoot".to_owned();
+        let st = mock::state(KEY);
+        let srv = mock::start_service(&st);
+        let mut db = rv_core::Database::default_db();
+        for task in [
+            Task::DatVaultUpdate {
+                online: config(&t, &srv),
+            },
+            Task::UpdateMia {
+                force: false,
+                online: config(&t, &srv),
+            },
+        ] {
+            let e = engine::run_task(
+                &mut db,
+                &s,
+                &task,
+                false,
+                &|_: ProgressEvent| {},
+                &CancelFlag::new(),
+            )
+            .unwrap_err();
+            assert!(matches!(e, EngineError::Protected(_)), "{e}");
+        }
+        assert!(srv.requests().is_empty());
+    }
+
+    #[test]
+    fn the_mia_task_marks_files_in_the_database() {
+        let t = Tmp::new("mia");
+        let s = t.settings();
+        let exe = synthetic_exe(0x1234, &SALT);
+        fs::write(t.path("stand-in.exe"), &exe).unwrap();
+        std::env::set_var(
+            "RV_TEST_SALT_SOURCE",
+            format!("{}:1234:13", sha256_hex(&exe)),
+        );
+        let st = mock::state(KEY);
+        let rec = MiaRecord {
+            size: Some(4),
+            crc: Some([0xed, 0x82, 0xcd, 0x11]),
+            date_ticks: Some(1),
+            ..MiaRecord::default()
+        };
+        {
+            let mut g = st.lock().unwrap();
+            g.mia_version = Some(900);
+            g.mia_blob = Some(blob(900, &[rec], KEY, &Salt::from_bytes(&SALT)));
+        }
+        let srv = mock::start_service(&st);
+        let mut cfg = config(&t, &srv);
+        cfg.rom_vault_exe = Some(t.path("stand-in.exe"));
+
+        t.write("DatRoot/Console/NES/Roms/nes.dat", DAT.as_bytes());
+        t.write("RomRoot/Console/NES/Roms/Alpha/a.rom", b"abcd");
+        let mut opened = engine::open_cache(&s, false).unwrap();
+        let none = &|_: ProgressEvent| {};
+        engine::run_task(
+            &mut opened.db,
+            &s,
+            &Task::UpdateDats { all: false },
+            false,
+            none,
+            &CancelFlag::new(),
+        )
+        .unwrap();
+        engine::run_task(
+            &mut opened.db,
+            &s,
+            &Task::Scan {
+                level: ScanLevel::Level2,
+                target: ScanTarget::Selected,
+            },
+            false,
+            none,
+            &CancelFlag::new(),
+        )
+        .unwrap();
+
+        let out = engine::run_task(
+            &mut opened.db,
+            &s,
+            &Task::UpdateMia {
+                force: false,
+                online: cfg.clone(),
+            },
+            false,
+            none,
+            &CancelFlag::new(),
+        )
+        .expect("mia");
+        assert!(
+            out.summary().contains("files checked, 1 on the list"),
+            "{}",
+            out.summary()
+        );
+        // The list's record is far in the past: the file is MIA now.
+        let nes = model::dir_at(
+            &opened.db.root,
+            &[
+                "RomVault".into(),
+                "Console".into(),
+                "NES".into(),
+                "Roms".into(),
+            ],
+        )
+        .unwrap();
+        let alpha = &nes.children[0];
+        let flags: Vec<(String, MiaStatus)> = alpha
+            .children
+            .iter()
+            .map(|f| (f.name.clone(), f.mia()))
+            .collect();
+        assert_eq!(
+            flags,
+            [
+                ("a.rom".to_owned(), MiaStatus::MIA),
+                ("b.rom".to_owned(), MiaStatus::NONE)
+            ]
+        );
+        // The saved cache has the flags.
+        let again = engine::open_cache(&s, false).unwrap();
+        let nes = model::dir_at(
+            &again.db.root,
+            &[
+                "RomVault".into(),
+                "Console".into(),
+                "NES".into(),
+                "Roms".into(),
+            ],
+        )
+        .unwrap();
+        assert_eq!(nes.children[0].children[0].mia(), MiaStatus::MIA);
+
+        // The same version again: nothing to apply.
+        let out = engine::run_task(
+            &mut opened.db,
+            &s,
+            &Task::UpdateMia {
+                force: false,
+                online: cfg.clone(),
+            },
+            false,
+            none,
+            &CancelFlag::new(),
+        )
+        .unwrap();
+        assert!(
+            out.summary().contains("nothing changed"),
+            "{}",
+            out.summary()
+        );
+
+        // No exe set: the words say so, and they do not hold the key.
+        let mut no_exe = cfg;
+        no_exe.rom_vault_exe = None;
+        let e = engine::run_task(
+            &mut opened.db,
+            &s,
+            &Task::UpdateMia {
+                force: true,
+                online: no_exe,
+            },
+            false,
+            none,
+            &CancelFlag::new(),
+        )
+        .unwrap_err();
+        assert!(e.to_string().contains("rom_vault_exe"), "{e}");
+        assert!(!e.to_string().contains(KEY));
+    }
+}

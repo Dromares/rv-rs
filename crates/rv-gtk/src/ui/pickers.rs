@@ -53,3 +53,17 @@ pub fn pick_new_file(
         }
     });
 }
+
+/// Ask for a file that exists (the user's ROMVault exe).
+pub fn pick_existing_file(
+    parent: &Window,
+    title: &str,
+    current: &str,
+    done: impl FnOnce(PathBuf) + 'static,
+) {
+    dialog(title, current).open(Some(parent), gio::Cancellable::NONE, move |res| {
+        if let Some(path) = res.ok().and_then(|f| f.path()) {
+            done(path);
+        }
+    });
+}

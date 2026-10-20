@@ -88,6 +88,8 @@ fn run(dir: &std::path::Path) -> Result<(), String> {
         .arg(&cfg)
         .arg("--prefs")
         .arg(dir.join("prefs.conf"))
+        .arg("--online-config")
+        .arg(dir.join("online.conf"))
         .args(["--select", "RomVault/Console/NES/Roms", "--game", "Alpha"])
         .env("GSK_RENDERER", "cairo")
         .env("NO_AT_BRIDGE", "1")
