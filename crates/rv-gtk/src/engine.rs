@@ -18,6 +18,11 @@ use rv_core::guard;
 use rv_core::progress::{CancelFlag, ProgressSink};
 use rv_core::{Database, ScanLevel, Settings};
 use rv_dat::update::{update_dats, UpdateError, UpdateOptions, UpdateReport};
+use rv_online::config::OnlineConfig;
+use rv_online::datvault::{FetchOptions, Vault};
+use rv_online::mia::{self, ApplyOptions, Prepared};
+use rv_online::salt::configured_source;
+use rv_online::Client;
 use rv_scan::db::{scan_files, ScanError, ScanReport, ScanRequest, ScanTarget};
 
 /// Why Find Fixes and Fix are switched off.
@@ -40,6 +45,8 @@ pub enum EngineError {
     Protected(Vec<guard::Violation>),
     Update(UpdateError),
     Scan(ScanError),
+    /// DatVault or MIA: the words of the online library, which never contain the key.
+    Online(String),
     /// The settings file cannot be written.
     Write(String),
 }
@@ -59,6 +66,7 @@ impl fmt::Display for EngineError {
             }
             EngineError::Update(e) => write!(f, "{e}"),
             EngineError::Scan(e) => write!(f, "{e}"),
+            EngineError::Online(e) => write!(f, "{e}"),
             EngineError::Write(e) => write!(f, "{e}"),
         }
     }
@@ -164,6 +172,11 @@ pub enum Task {
         level: ScanLevel,
         target: ScanTarget,
     },
+    /// "Update DATs from DatVault": the DATs that are here and have a newer version, then the
+    /// normal DAT update. The settings are read from the file when the button is pressed.
+    DatVaultUpdate { online: OnlineConfig },
+    /// "Update MIA": fetch the list and mark the files; `force` also when it has not changed.
+    UpdateMia { force: bool, online: OnlineConfig },
 }
 
 impl Task {
@@ -171,6 +184,8 @@ impl Task {
         match self {
             Task::UpdateDats { all: false } => "Updating DATs".to_owned(),
             Task::UpdateDats { all: true } => "Updating all DATs".to_owned(),
+            Task::DatVaultUpdate { .. } => "Updating DATs from DatVault".to_owned(),
+            Task::UpdateMia { .. } => "Updating MIA".to_owned(),
             Task::Scan { level, target } => {
                 let what = match level {
                     ScanLevel::Level1 => "Scanning (headers only)",
@@ -191,6 +206,19 @@ impl Task {
 pub enum Outcome {
     Updated(UpdateReport),
     Scanned(ScanReport),
+    DatVault {
+        downloaded: usize,
+        removed: usize,
+        failed: Vec<(String, String)>,
+        cancelled: bool,
+        /// The DAT update that follows a download.
+        updated: Option<UpdateReport>,
+    },
+    Mia {
+        release: String,
+        /// `(files checked, files on the list)`; none when the list had not changed.
+        applied: Option<(usize, usize)>,
+    },
 }
 
 impl Outcome {
@@ -198,6 +226,8 @@ impl Outcome {
         match self {
             Outcome::Updated(r) => r.cancelled,
             Outcome::Scanned(r) => r.cancelled,
+            Outcome::DatVault { cancelled, .. } => *cancelled,
+            Outcome::Mia { .. } => false,
         }
     }
 
@@ -212,6 +242,31 @@ impl Outcome {
                 r.dats_failed.len(),
                 if r.cancelled { " (cancelled)" } else { "" }
             ),
+            Outcome::DatVault {
+                downloaded,
+                removed,
+                failed,
+                cancelled,
+                updated,
+            } => format!(
+                "DatVault: {downloaded} DATs downloaded, {removed} removed, {} failed{}{}",
+                failed.len(),
+                updated
+                    .as_ref()
+                    .map(|r| format!(
+                        "; {} DATs added, {} removed in the database",
+                        r.dats_added.len(),
+                        r.dats_removed.len()
+                    ))
+                    .unwrap_or_default(),
+                if *cancelled { " (cancelled)" } else { "" }
+            ),
+            Outcome::Mia { release, applied } => match applied {
+                Some((files, found)) => {
+                    format!("MIA release {release}: {files} files checked, {found} on the list")
+                }
+                None => format!("MIA: nothing changed, release {release}"),
+            },
             Outcome::Scanned(r) => format!(
                 "{} directories, {} archives read, {} files hashed, {} problems{}{}",
                 r.dirs_scanned,
@@ -250,6 +305,8 @@ pub fn run_task(
                     .map_err(EngineError::Update)?,
             )
         }
+        Task::DatVaultUpdate { online } => datvault_update(db, settings, online, progress, cancel)?,
+        Task::UpdateMia { force, online } => mia_update(db, online, *force, progress)?,
         Task::Scan { level, target } => {
             let request = ScanRequest {
                 level: *level,
@@ -262,4 +319,90 @@ pub fn run_task(
     };
     save_cache(settings, db, allow_protected)?;
     Ok(outcome)
+}
+
+fn online_err(e: rv_online::Error) -> EngineError {
+    EngineError::Online(e.to_string())
+}
+
+fn client_for(online: &OnlineConfig) -> Result<Client, EngineError> {
+    Ok(Client::new(online.endpoint().map_err(online_err)?))
+}
+
+/// The DATs of the groups that are already in the DAT root, newer versions only (nothing new is
+/// added and nothing is removed: those are choices the command line offers), then the DAT update
+/// when anything was downloaded.
+fn datvault_update(
+    db: &mut Database,
+    settings: &Settings,
+    online: &OnlineConfig,
+    progress: &dyn ProgressSink,
+    cancel: &CancelFlag,
+) -> Result<Outcome, EngineError> {
+    let client = client_for(online)?;
+    let vault = Vault::new(&client, &online.dat_vault_key).map_err(online_err)?;
+    let root = PathBuf::from(&settings.dat_root);
+    let mut plan = vault.plan(&root, &[], progress).map_err(online_err)?;
+    let cues_dir = settings
+        .dir_mappings
+        .iter()
+        .find(|m| m.dir_key == "ToSort" && !m.dir_path.trim().is_empty())
+        .map(|m| PathBuf::from(&m.dir_path).join("cues"));
+    let opts = FetchOptions {
+        cues_dir,
+        delete_old_cue_files: online.delete_old_cue_files,
+        remove_discontinued: false,
+    };
+    let fetched = vault.fetch(&root, &mut plan, &[], &opts, progress, cancel);
+    let updated = if fetched.downloaded.is_empty() || cancel.is_cancelled() {
+        None
+    } else {
+        Some(
+            update_dats(db, settings, &UpdateOptions::default(), progress, cancel)
+                .map_err(EngineError::Update)?,
+        )
+    };
+    Ok(Outcome::DatVault {
+        downloaded: fetched.downloaded.len(),
+        removed: fetched.removed.len(),
+        failed: fetched.failed,
+        cancelled: fetched.cancelled,
+        updated,
+    })
+}
+
+fn mia_update(
+    db: &mut Database,
+    online: &OnlineConfig,
+    force: bool,
+    progress: &dyn ProgressSink,
+) -> Result<Outcome, EngineError> {
+    let client = client_for(online)?;
+    progress.report(rv_core::progress::ProgressEvent::Text(
+        "Fetching MIA Cache".into(),
+    ));
+    match mia::prepare(&client, online, &configured_source(), force).map_err(online_err)? {
+        Prepared::Unchanged { release } => Ok(Outcome::Mia {
+            release,
+            applied: None,
+        }),
+        Prepared::Ready { list, release, .. } => {
+            progress.report(rv_core::progress::ProgressEvent::Text(
+                "Updating MIA".into(),
+            ));
+            let a = mia::apply_mia(
+                &mut db.root,
+                &list,
+                &ApplyOptions {
+                    mia_days: online.mia_days,
+                    force_update: force,
+                    now_ticks: mia::now_ticks(),
+                },
+            );
+            Ok(Outcome::Mia {
+                release,
+                applied: Some((a.files, a.found)),
+            })
+        }
+    }
 }

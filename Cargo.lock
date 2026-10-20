@@ -1361,9 +1361,11 @@ version = "0.0.0"
 dependencies = [
  "gtk4",
  "relm4",
+ "rv-archive",
  "rv-cache",
  "rv-core",
  "rv-dat",
+ "rv-online",
  "rv-scan",
 ]
 
