@@ -1,6 +1,6 @@
 [package]
 name = "rv-gtk"
-description = "Placeholder, nothing implemented yet: GTK4 interface"
+description = "GTK4 front end: DAT tree, game and ROM lists, update, scan, settings"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -12,13 +12,21 @@ rv-core = { workspace = true }
 rv-cache = { workspace = true }
 rv-dat = { workspace = true }
 rv-scan = { workspace = true }
-rv-archive = { workspace = true }
-rv-fix = { workspace = true }
-rv-online = { workspace = true }
-rv-update = { workspace = true }
-gtk4 = "0.11.5"
+gtk4 = { version = "0.11.5", features = ["v4_12"] }
 relm4 = "0.11.0"
+
+[lib]
+name = "rv_gtk"
+path = "src/lib.rs"
 
 [[bin]]
 name = "rv-gtk"
 path = "src/main.rs"
+
+# Needs a display, so it is its own program: it runs when RV_GTK_SMOKE=1 (CI sets it, under
+# xvfb-run) and says so and passes otherwise. GTK must also be used from the main thread, which
+# the default test harness does not give a test.
+[[test]]
+name = "smoke"
+path = "tests/smoke.rs"
+harness = false

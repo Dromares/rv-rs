@@ -12,7 +12,10 @@
 //! * [`status_check`], [`RepStatus`], [`DirStatus`]: the statuses an item may have for its
 //!   `(FileType, DatStatus, GotStatus)`, and the per-directory counters
 //!   ([`RvFile::dir_status`]).
-//! * [`Settings`]: `RomVault3cfg.xml`: DAT rules, directory mappings, ignore patterns.
+//! * [`Settings`]: `RomVault3cfg.xml`: DAT rules, directory mappings, ignore patterns. It reads
+//!   the file and writes it back ([`Settings::to_xml`]), keeping the parts of the file it does not
+//!   model.
+//! * [`guard`]: the directories a front end refuses to work in.
 //! * [`sorters`]: the name orders the cache depends on. [`header`]: the copier-header table.
 //! * [`progress`]: [`progress::ProgressSink`] and [`progress::CancelFlag`], which the long
 //!   operations take. There is no global state anywhere in the stack.
@@ -28,6 +31,7 @@
 //! `docs/cache-format.md` of the decompile notes, which is not part of this repository.
 
 mod enums;
+pub mod guard;
 pub mod header;
 mod model;
 pub mod progress;
