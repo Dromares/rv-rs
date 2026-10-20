@@ -6,6 +6,7 @@
 //! to `https://` only, or to the loopback while the request itself is on the loopback.
 
 use std::io::Read;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use crate::error::{Error, Result};
@@ -57,6 +58,18 @@ pub(crate) fn check_url(url: &str) -> Result<()> {
     Ok(())
 }
 
+/// The crypto provider of every agent in this crate. `ureq` is built without a default
+/// provider (`rustls-no-provider`), and without one the first `https://` request panics
+/// ("No CryptoProvider for Rustls"). It is set on each agent, not as the process default, so it
+/// holds for any caller of this crate and does not touch the rest of the process. One shared
+/// `Arc`: `ureq` keys its TLS config on the provider's identity.
+fn crypto_provider() -> Arc<rustls::crypto::CryptoProvider> {
+    static PROVIDER: OnceLock<Arc<rustls::crypto::CryptoProvider>> = OnceLock::new();
+    PROVIDER
+        .get_or_init(|| Arc::new(rustls::crypto::ring::default_provider()))
+        .clone()
+}
+
 fn agent(loopback: bool) -> ureq::Agent {
     let mut cfg = ureq::Agent::config_builder()
         .http_status_as_error(false)
@@ -68,6 +81,7 @@ fn agent(loopback: bool) -> ureq::Agent {
         .tls_config(
             ureq::tls::TlsConfig::builder()
                 .provider(ureq::tls::TlsProvider::Rustls)
+                .unversioned_rustls_crypto_provider(crypto_provider())
                 .root_certs(ureq::tls::RootCerts::PlatformVerifier)
                 .build(),
         );
