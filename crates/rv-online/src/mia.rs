@@ -437,6 +437,22 @@ pub fn now_ticks() -> i64 {
     rv_core::time::UNIX_EPOCH_TICKS + (d.as_secs() as i64) * 10_000_000
 }
 
+/// The calendar date (UTC, `YYYY-MM-DD`) of .NET ticks, for "MIA Release {date}".
+pub fn ticks_to_date(ticks: u64) -> String {
+    let days = (ticks / 864_000_000_000) as i64 - 719_162; // days since 1970-01-01
+                                                           // Civil from days (H. Hinnant's algorithm).
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
 /// Build a list and encrypt it the way the server does. For the tests (and the mock).
 #[cfg(any(test, feature = "mock"))]
 pub mod testing {
@@ -953,6 +969,18 @@ mod tests {
             apply_mia(&mut empty, &list, &opts(false)),
             Applied::default()
         );
+    }
+
+    #[test]
+    fn ticks_to_date_known_days() {
+        // The cache stores 638607595200000000 for 2024-09-01 03:52 UTC (rv-core's time tests).
+        assert_eq!(ticks_to_date(638_607_595_200_000_000), "2024-09-01");
+        assert_eq!(ticks_to_date(621_355_968_000_000_000), "1970-01-01");
+        assert_eq!(
+            ticks_to_date(621_355_968_000_000_000 + 11_016 * 864_000_000_000 + 5),
+            "2000-02-29"
+        );
+        assert_eq!(ticks_to_date(0), "0001-01-01");
     }
 
     #[test]

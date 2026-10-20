@@ -633,3 +633,810 @@ fn extract_dat(bytes: &[u8], name: &str) -> Result<Vec<u8>> {
     }
     z.read_entry(i).map_err(|e| bad(e.to_string()))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mock::{self, fault, loopback_client, MockReply, MockServer};
+    use ruzstd::encoding::{compress_to_vec, CompressionLevel};
+    use rv_archive::zip::{TorrentZipWriter, ZipStructure};
+    use rv_core::progress::NoProgress;
+
+    const KEY: &str = "KEY-1234-secret";
+
+    fn tmp(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("rv-online-dv-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    fn info(group: &str, system: &str, version: &str, date: &str) -> DatInfo {
+        DatInfo {
+            group: group.into(),
+            system: system.into(),
+            date: date.into(),
+            date_created: "2020-01-01".into(),
+            version: version.into(),
+            dat_url: format!("url-{system}-{version}"),
+            cue_url: String::new(),
+            dat_name: format!("{system}.dat"),
+            directory: String::new(),
+            dat_roms_size: 1234,
+        }
+    }
+
+    fn zst(infos: &[DatInfo]) -> Vec<u8> {
+        compress_to_vec(
+            &serde_json::to_vec(infos).unwrap()[..],
+            CompressionLevel::Uncompressed,
+        )
+    }
+
+    fn zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut entries = entries.to_vec();
+        entries.sort_by(|a, b| rv_archive::sort::trrntzip_compare_case(a.0, b.0));
+        let mut w = TorrentZipWriter::new(std::io::Cursor::new(Vec::new()), ZipStructure::ZipTrrnt)
+            .unwrap();
+        for (n, d) in entries {
+            w.add_bytes(n, d, None).unwrap();
+        }
+        w.finish().unwrap().into_inner()
+    }
+
+    fn group(base: &str, g: &str) -> Group {
+        Group {
+            basepath: base.into(),
+            display_name: g.into(),
+            group: g.into(),
+            url: String::new(),
+        }
+    }
+
+    fn seed(dir: &Path, i: &DatInfo, with_dat: bool) -> LocalSeed {
+        std::fs::create_dir_all(dir).unwrap();
+        let json_path = dir.join(format!("{}.json", i.system));
+        std::fs::write(&json_path, serde_json::to_vec(i).unwrap()).unwrap();
+        if with_dat {
+            std::fs::write(dir.join(&i.dat_name), b"old dat").unwrap();
+        }
+        LocalSeed {
+            json_path,
+            info: i.clone(),
+            dat_exists: with_dat,
+        }
+    }
+
+    struct Fx {
+        st: mock::SharedState,
+        srv: MockServer,
+        client: Client,
+    }
+
+    fn fx() -> Fx {
+        let st = mock::state(KEY);
+        let srv = mock::start_service(&st);
+        let client = loopback_client(&srv);
+        Fx { st, srv, client }
+    }
+
+    // ---- key and groups --------------------------------------------------------------------
+
+    #[test]
+    fn the_key_check_accepts_ok_in_any_case_and_nothing_else() {
+        let f = fx();
+        let v = Vault::new(&f.client, KEY).unwrap();
+        for ok in ["ok", "OK", "Ok", "oK"] {
+            f.st.lock().unwrap().check_reply = ok.into();
+            assert!(v.check_key().unwrap(), "{ok}");
+        }
+        f.st.lock().unwrap().check_reply = "okay".into();
+        assert!(!v.check_key().unwrap());
+        // The service answers a bad key with something else.
+        f.st.lock().unwrap().check_reply = "ok".into();
+        assert!(!Vault::new(&f.client, "wrong").unwrap().check_key().unwrap());
+    }
+
+    #[test]
+    fn a_blank_key_is_refused_before_anything_is_sent() {
+        let f = fx();
+        for k in ["", "  \t"] {
+            assert_eq!(Vault::new(&f.client, k).err(), Some(Error::KeyRequired));
+        }
+        assert!(f.srv.requests().is_empty());
+    }
+
+    #[test]
+    fn network_and_service_errors_are_errors_not_an_invalid_key() {
+        let f = fx();
+        f.st.lock().unwrap().faulting.insert("CheckDVUser".into());
+        let e = Vault::new(&f.client, KEY).unwrap().check_key().unwrap_err();
+        assert!(matches!(e, Error::Fault(_)));
+        assert!(!e.to_string().contains(KEY));
+    }
+
+    #[test]
+    fn groups_come_sorted_by_base_path_then_group() {
+        let f = fx();
+        f.st.lock().unwrap().groups = vec![
+            group("b", "z"),
+            group("a", "y"),
+            group("b", "a"),
+            group("a", "b"),
+        ];
+        let g = Vault::new(&f.client, KEY).unwrap().groups().unwrap();
+        let order: Vec<_> = g
+            .iter()
+            .map(|g| format!("{}/{}", g.basepath, g.group))
+            .collect();
+        assert_eq!(order, ["a/b", "a/y", "b/a", "b/z"]);
+    }
+
+    // ---- the listing -----------------------------------------------------------------------
+
+    #[test]
+    fn a_group_listing_is_zstd_then_json_with_the_exes_names() {
+        let i = info("g", "nes", "1", "d1");
+        let bytes = zst(std::slice::from_ref(&i));
+        assert_eq!(decode_group_info(&bytes).unwrap().unwrap(), vec![i.clone()]);
+        let json = serde_json::to_string(&i).unwrap();
+        for name in [
+            "\"group\"",
+            "\"system\"",
+            "\"date\"",
+            "\"dateCreated\"",
+            "\"version\"",
+            "\"datURL\"",
+            "\"cueURL\"",
+            "\"datName\"",
+            "\"directory\"",
+            "\"datROMsSize\"",
+        ] {
+            assert!(json.contains(name), "{name} in {json}");
+        }
+        // The declaration order is the order written.
+        assert!(json.find("\"group\"").unwrap() < json.find("\"system\"").unwrap());
+        assert!(json.find("\"directory\"").unwrap() < json.find("\"datROMsSize\"").unwrap());
+    }
+
+    #[test]
+    fn null_and_missing_fields_are_empty() {
+        let bytes = compress_to_vec(
+            &br#"[{"group":"g","system":null,"datROMsSize":null,"extra":1}]"#[..],
+            CompressionLevel::Uncompressed,
+        );
+        let got = decode_group_info(&bytes).unwrap().unwrap();
+        assert_eq!(got[0].group, "g");
+        assert_eq!(got[0].system, "");
+        assert_eq!(got[0].dat_roms_size, 0);
+    }
+
+    #[test]
+    fn nothing_or_one_byte_is_no_group_and_junk_is_an_error() {
+        assert_eq!(decode_group_info(&[]).unwrap(), None);
+        assert_eq!(decode_group_info(&[0]).unwrap(), None);
+        assert!(matches!(
+            decode_group_info(b"this is not zstd"),
+            Err(Error::BadResponse(_))
+        ));
+        let not_json = compress_to_vec(&b"not json"[..], CompressionLevel::Uncompressed);
+        assert!(matches!(
+            decode_group_info(&not_json),
+            Err(Error::BadResponse(_))
+        ));
+    }
+
+    // ---- the statuses ----------------------------------------------------------------------
+
+    #[test]
+    fn every_status_rule_of_update_master_lists() {
+        let dir = tmp("status");
+        let l = |v: &str, d: &str, dat: bool| {
+            seed(
+                &dir.join(format!("{v}{d}{dat}")),
+                &info("g", "s", v, d),
+                dat,
+            )
+        };
+        let r = |v: &str, d: &str| info("g", "s", v, d);
+        // Same version and date, the DAT is there: good, and not ticked.
+        assert_eq!(
+            status_of(Some(&l("1", "d", true)), Some(&r("1", "d")), true),
+            (DatUpdate::Good, false)
+        );
+        // Same, the DAT file is gone: missing, ticked.
+        assert_eq!(
+            status_of(Some(&l("1", "d", false)), Some(&r("1", "d")), true),
+            (DatUpdate::Missing, true)
+        );
+        // Same version, another date: replace.
+        assert_eq!(
+            status_of(Some(&l("1", "d", true)), Some(&r("1", "e")), true),
+            (DatUpdate::Replace, true)
+        );
+        // Another version: update (whatever the date and the file).
+        assert_eq!(
+            status_of(Some(&l("1", "d", true)), Some(&r("2", "d")), true),
+            (DatUpdate::Update, true)
+        );
+        assert_eq!(
+            status_of(Some(&l("1", "d", false)), Some(&r("2", "e")), true),
+            (DatUpdate::Update, true)
+        );
+        // Only here: discontinued when the server listed the group, unknown when it did not.
+        assert_eq!(
+            status_of(Some(&l("1", "d", true)), None, true),
+            (DatUpdate::Discontinued, false)
+        );
+        assert_eq!(
+            status_of(Some(&l("1", "d", true)), None, false),
+            (DatUpdate::Unknown, false)
+        );
+        // Only there: available, not ticked.
+        assert_eq!(
+            status_of(None, Some(&r("1", "d")), true),
+            (DatUpdate::Available, false)
+        );
+        assert_eq!(DatUpdate::Missing as u8, 7);
+        assert_eq!(DatUpdate::Available as u8, 8);
+    }
+
+    #[test]
+    fn plan_reads_seeds_and_asks_for_their_groups_only() {
+        let f = fx();
+        let root = tmp("plan");
+        seed(&root.join("a"), &info("g1", "nes", "1", "d"), true);
+        seed(&root.join("b"), &info("g2", "snes", "1", "d"), true);
+        std::fs::write(root.join("a").join("broken.json"), b"{not json").unwrap();
+        {
+            let mut s = f.st.lock().unwrap();
+            s.group_info.insert(
+                "g1".into(),
+                Some(zst(&[
+                    info("g1", "nes", "2", "d"),
+                    info("g1", "gb", "1", "d"),
+                ])),
+            );
+            // g2 is not known to the server: nil.
+        }
+        let plan = Vault::new(&f.client, KEY)
+            .unwrap()
+            .plan(&root, &[], &NoProgress)
+            .unwrap();
+        let st: Vec<_> = plan
+            .pairs
+            .iter()
+            .map(|p| (p.key.as_str(), p.status))
+            .collect();
+        assert_eq!(
+            st,
+            [
+                ("g1|gb", DatUpdate::Available),
+                ("g1|nes", DatUpdate::Update),
+                ("g2|snes", DatUpdate::Unknown)
+            ]
+        );
+        assert_eq!(plan.warnings.len(), 1);
+        assert!(plan.warnings[0].contains("broken.json"));
+        assert_eq!(f.srv.count("GetDVGroupInfoV2"), 2);
+    }
+
+    #[test]
+    fn a_failed_listing_is_an_error_and_never_marks_dats_discontinued() {
+        let f = fx();
+        let root = tmp("planfail");
+        seed(&root, &info("g1", "nes", "1", "d"), true);
+        f.st.lock()
+            .unwrap()
+            .faulting
+            .insert("GetDVGroupInfoV2".into());
+        let e = Vault::new(&f.client, KEY)
+            .unwrap()
+            .plan(&root, &[], &NoProgress)
+            .unwrap_err();
+        assert!(matches!(e, Error::Fault(_)));
+        // Garbage in place of a listing too.
+        let srv = MockServer::start(|_| MockReply {
+            status: 200,
+            body: b"<x/>".to_vec(),
+        });
+        let c = loopback_client(&srv);
+        assert!(Vault::new(&c, KEY)
+            .unwrap()
+            .plan(&root, &[], &NoProgress)
+            .is_err());
+    }
+
+    #[test]
+    fn extra_groups_are_listed_too() {
+        let f = fx();
+        let root = tmp("extra");
+        f.st.lock()
+            .unwrap()
+            .group_info
+            .insert("g9".into(), Some(zst(&[info("g9", "x", "1", "d")])));
+        let plan = Vault::new(&f.client, KEY)
+            .unwrap()
+            .plan(&root, &["g9".into()], &NoProgress)
+            .unwrap();
+        assert_eq!(plan.pairs.len(), 1);
+        assert_eq!(plan.pairs[0].status, DatUpdate::Available);
+    }
+
+    // ---- downloading -----------------------------------------------------------------------
+
+    fn serve_dat(f: &Fx, i: &DatInfo, contents: &[u8]) {
+        f.st.lock().unwrap().files.insert(
+            format!("{}|{}|{}", i.group, i.system, i.dat_url),
+            zip(&[(&i.dat_name, contents), ("readme.txt", b"other")]),
+        );
+    }
+
+    fn fetch_all(
+        f: &Fx,
+        root: &Path,
+        plan: &mut Plan,
+        groups: &[Group],
+        opts: &FetchOptions,
+    ) -> FetchReport {
+        Vault::new(&f.client, KEY).unwrap().fetch(
+            root,
+            plan,
+            groups,
+            opts,
+            &NoProgress,
+            &CancelFlag::new(),
+        )
+    }
+
+    fn available(i: &DatInfo) -> Plan {
+        Plan {
+            pairs: vec![Pair {
+                key: format!("{}|{}", i.group, i.system),
+                local: None,
+                remote: Some(i.clone()),
+                status: DatUpdate::Available,
+                checked: true,
+            }],
+            warnings: vec![],
+        }
+    }
+
+    #[test]
+    fn a_new_dat_is_written_with_its_seed_under_base_path_group_directory() {
+        let f = fx();
+        let root = tmp("new");
+        let mut i = info("nointro", "nes", "1", "d");
+        i.directory = "Nintendo\\NES".into();
+        serve_dat(&f, &i, b"the dat contents");
+        let mut plan = available(&i);
+        let r = fetch_all(
+            &f,
+            &root,
+            &mut plan,
+            &[group("Console", "nointro")],
+            &FetchOptions::default(),
+        );
+        assert_eq!(r.downloaded, ["nointro|nes"]);
+        assert!(r.failed.is_empty());
+        let dir = root
+            .join("Console")
+            .join("nointro")
+            .join("Nintendo")
+            .join("NES");
+        assert_eq!(
+            std::fs::read(dir.join("nes.dat")).unwrap(),
+            b"the dat contents"
+        );
+        let on_disk: DatInfo =
+            serde_json::from_slice(&std::fs::read(dir.join("nes.json")).unwrap()).unwrap();
+        assert_eq!(on_disk, i);
+        assert_eq!(plan.pairs[0].status, DatUpdate::Good);
+        // The next plan sees it as up to date.
+        let (seeds, w) = read_seeds(&root);
+        assert!(w.is_empty());
+        assert_eq!(seeds.len(), 1);
+        assert!(seeds[0].dat_exists);
+        let request = &f.srv.requests()[0].body;
+        assert!(
+            request.contains("<datURL>url-nes-1</datURL>")
+                && request.contains("<group>nointro</group>")
+        );
+    }
+
+    #[test]
+    fn an_update_replaces_the_dat_and_keeps_the_old_one_when_the_name_changes() {
+        let f = fx();
+        let root = tmp("upd");
+        let dir = root.join("x");
+        let old = info("g", "s", "1", "d");
+        let local = seed(&dir, &old, true);
+        let mut new = info("g", "s", "2", "e");
+        new.dat_name = "s v2.dat".into();
+        serve_dat(&f, &new, b"new contents");
+        let mut plan = Plan {
+            pairs: vec![Pair {
+                key: "g|s".into(),
+                local: Some(local),
+                remote: Some(new.clone()),
+                status: DatUpdate::Update,
+                checked: true,
+            }],
+            warnings: vec![],
+        };
+        std::fs::write(dir.join("s.dat.old"), b"previous .old").unwrap();
+        let r = fetch_all(&f, &root, &mut plan, &[], &FetchOptions::default());
+        assert_eq!(r.downloaded, ["g|s"]);
+        assert_eq!(
+            std::fs::read(dir.join("s v2.dat")).unwrap(),
+            b"new contents"
+        );
+        assert!(!dir.join("s.dat").exists());
+        assert_eq!(std::fs::read(dir.join("s.dat.old")).unwrap(), b"old dat");
+        let seed_now: DatInfo =
+            serde_json::from_slice(&std::fs::read(dir.join("s.json")).unwrap()).unwrap();
+        assert_eq!(seed_now.version, "2");
+    }
+
+    #[test]
+    fn a_failed_download_leaves_the_old_dat_and_seed_alone() {
+        let f = fx();
+        let root = tmp("keep");
+        let dir = root.join("x");
+        let old = info("g", "s", "1", "d");
+        let local = seed(&dir, &old, true);
+        let new = info("g", "s", "2", "e");
+        let mk = |remote: &DatInfo| Plan {
+            pairs: vec![Pair {
+                key: "g|s".into(),
+                local: Some(local.clone()),
+                remote: Some(remote.clone()),
+                status: DatUpdate::Update,
+                checked: true,
+            }],
+            warnings: vec![],
+        };
+        // 1. The service has no such DAT (nil).
+        let mut plan = mk(&new);
+        let r = fetch_all(&f, &root, &mut plan, &[], &FetchOptions::default());
+        assert_eq!(r.failed.len(), 1);
+        // 2. A zip without the entry.
+        f.st.lock()
+            .unwrap()
+            .files
+            .insert(format!("g|s|{}", new.dat_url), zip(&[("other.dat", b"x")]));
+        let mut plan = mk(&new);
+        let r = fetch_all(&f, &root, &mut plan, &[], &FetchOptions::default());
+        assert!(r.failed[0].1.contains("no entry"), "{:?}", r.failed);
+        // 3. Not a zip at all.
+        f.st.lock()
+            .unwrap()
+            .files
+            .insert(format!("g|s|{}", new.dat_url), b"junk".to_vec());
+        let mut plan = mk(&new);
+        assert_eq!(
+            fetch_all(&f, &root, &mut plan, &[], &FetchOptions::default())
+                .failed
+                .len(),
+            1
+        );
+        // 4. The service faults.
+        f.st.lock().unwrap().faulting.insert("GetDVDat".into());
+        let mut plan = mk(&new);
+        assert_eq!(
+            fetch_all(&f, &root, &mut plan, &[], &FetchOptions::default())
+                .failed
+                .len(),
+            1
+        );
+        assert_eq!(std::fs::read(dir.join("s.dat")).unwrap(), b"old dat");
+        let seed_now: DatInfo =
+            serde_json::from_slice(&std::fs::read(dir.join("s.json")).unwrap()).unwrap();
+        assert_eq!(seed_now.version, "1");
+    }
+
+    #[test]
+    fn a_new_dat_that_fails_keeps_its_seed_as_missing_for_next_time() {
+        let f = fx();
+        let root = tmp("seedfirst");
+        let i = info("g", "s", "1", "d");
+        let mut plan = available(&i);
+        let r = fetch_all(
+            &f,
+            &root,
+            &mut plan,
+            &[group("b", "g")],
+            &FetchOptions::default(),
+        );
+        assert_eq!(r.failed.len(), 1);
+        let (seeds, _) = read_seeds(&root);
+        assert_eq!(seeds.len(), 1);
+        assert!(!seeds[0].dat_exists);
+        assert_eq!(plan.pairs[0].status, DatUpdate::Missing);
+    }
+
+    #[test]
+    fn cues_are_fetched_into_the_cue_directory_and_the_old_one_can_go() {
+        let f = fx();
+        let root = tmp("cue");
+        let cues = tmp("cue-dir");
+        std::fs::write(cues.join("old.cue"), b"old cue").unwrap();
+        let dir = root.join("x");
+        let mut old = info("g", "s", "1", "d");
+        old.cue_url = "old.cue".into();
+        let local = seed(&dir, &old, true);
+        let mut new = info("g", "s", "2", "d");
+        new.cue_url = "new.cue".into();
+        serve_dat(&f, &new, b"dat");
+        f.st.lock()
+            .unwrap()
+            .files
+            .insert("g|s|new.cue".into(), b"cue bytes".to_vec());
+        let mut plan = Plan {
+            pairs: vec![Pair {
+                key: "g|s".into(),
+                local: Some(local),
+                remote: Some(new.clone()),
+                status: DatUpdate::Update,
+                checked: true,
+            }],
+            warnings: vec![],
+        };
+        let opts = FetchOptions {
+            cues_dir: Some(cues.clone()),
+            delete_old_cue_files: true,
+            ..FetchOptions::default()
+        };
+        let r = fetch_all(&f, &root, &mut plan, &[], &opts);
+        assert_eq!(r.downloaded.len(), 1, "{:?}", r.failed);
+        assert_eq!(std::fs::read(cues.join("new.cue")).unwrap(), b"cue bytes");
+        assert!(!cues.join("old.cue").exists());
+        // Without a cue directory no cue is requested.
+        let before = f.srv.count("GetDVCue");
+        let mut plan = Plan {
+            pairs: vec![Pair {
+                key: "g|s".into(),
+                local: plan.pairs[0].local.clone(),
+                remote: Some(info("g", "s", "3", "d")),
+                status: DatUpdate::Update,
+                checked: true,
+            }],
+            warnings: vec![],
+        };
+        serve_dat(&f, &info("g", "s", "3", "d"), b"dat3");
+        fetch_all(&f, &root, &mut plan, &[], &FetchOptions::default());
+        assert_eq!(f.srv.count("GetDVCue"), before);
+    }
+
+    #[test]
+    fn a_missing_cue_is_noticed_unlike_the_exe() {
+        let f = fx();
+        let root = tmp("nocue");
+        let cues = tmp("nocue-dir");
+        let mut i = info("g", "s", "1", "d");
+        i.cue_url = "gone.cue".into();
+        serve_dat(&f, &i, b"dat");
+        let mut plan = available(&i);
+        let opts = FetchOptions {
+            cues_dir: Some(cues),
+            ..FetchOptions::default()
+        };
+        let r = fetch_all(&f, &root, &mut plan, &[group("b", "g")], &opts);
+        assert_eq!(r.failed.len(), 1);
+        assert!(r.failed[0].1.contains("cue"), "{:?}", r.failed);
+    }
+
+    #[test]
+    fn names_that_leave_the_dat_root_write_nothing() {
+        let f = fx();
+        let base = tmp("evil");
+        let root = base.join("DatRoot");
+        std::fs::create_dir_all(&root).unwrap();
+        let cues = base.join("cues");
+        let cases: Vec<(&str, DatInfo, Group)> = vec![
+            (
+                "dir ..",
+                DatInfo {
+                    directory: "../../escape".into(),
+                    ..info("g", "s", "1", "d")
+                },
+                group("b", "g"),
+            ),
+            (
+                "dir backslash ..",
+                DatInfo {
+                    directory: "..\\..\\escape".into(),
+                    ..info("g", "s", "1", "d")
+                },
+                group("b", "g"),
+            ),
+            (
+                "dir absolute",
+                DatInfo {
+                    directory: "/tmp/escape".into(),
+                    ..info("g", "s", "1", "d")
+                },
+                group("b", "g"),
+            ),
+            (
+                "system",
+                DatInfo {
+                    system: "../s".into(),
+                    ..info("g", "s", "1", "d")
+                },
+                group("b", "g"),
+            ),
+            (
+                "datName",
+                DatInfo {
+                    dat_name: "../x.dat".into(),
+                    ..info("g", "s", "1", "d")
+                },
+                group("b", "g"),
+            ),
+            (
+                "datName dotdot",
+                DatInfo {
+                    dat_name: "..".into(),
+                    ..info("g", "s", "1", "d")
+                },
+                group("b", "g"),
+            ),
+            (
+                "cue",
+                DatInfo {
+                    cue_url: "../c.cue".into(),
+                    ..info("g", "s", "1", "d")
+                },
+                group("b", "g"),
+            ),
+            ("basepath", info("g", "s", "1", "d"), group("../../up", "g")),
+            (
+                "group",
+                DatInfo {
+                    group: "g/../../up".into(),
+                    ..info("g", "s", "1", "d")
+                },
+                group("b", "g/../../up"),
+            ),
+        ];
+        for (label, i, g) in cases {
+            serve_dat(&f, &i, b"dat");
+            f.st.lock().unwrap().files.insert(
+                format!("{}|{}|{}", i.group, i.system, i.cue_url),
+                b"cue".to_vec(),
+            );
+            let mut plan = available(&i);
+            let opts = FetchOptions {
+                cues_dir: Some(cues.clone()),
+                ..FetchOptions::default()
+            };
+            let r = fetch_all(&f, &root, &mut plan, &[g], &opts);
+            assert_eq!(r.failed.len(), 1, "{label}: {r:?}");
+            assert!(
+                r.failed[0].1.contains("outside the DAT root"),
+                "{label}: {:?}",
+                r.failed
+            );
+        }
+        // Nothing appeared next to the DAT root or in the cue directory.
+        let names: Vec<_> = std::fs::read_dir(&base)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, ["DatRoot"], "{names:?}");
+        assert!(!cues.exists());
+        assert!(!Path::new("/tmp/escape").exists());
+    }
+
+    #[test]
+    fn discontinued_dats_go_only_when_asked() {
+        let f = fx();
+        let root = tmp("disc");
+        let dir = root.join("x");
+        let local = seed(&dir, &info("g", "s", "1", "d"), true);
+        let mk = || Plan {
+            pairs: vec![Pair {
+                key: "g|s".into(),
+                local: Some(local.clone()),
+                remote: None,
+                status: DatUpdate::Discontinued,
+                checked: false,
+            }],
+            warnings: vec![],
+        };
+        let mut plan = mk();
+        let r = fetch_all(&f, &root, &mut plan, &[], &FetchOptions::default());
+        assert_eq!(r, FetchReport::default());
+        assert!(dir.join("s.dat").exists() && dir.join("s.json").exists());
+        let mut plan = mk();
+        let r = fetch_all(
+            &f,
+            &root,
+            &mut plan,
+            &[],
+            &FetchOptions {
+                remove_discontinued: true,
+                ..FetchOptions::default()
+            },
+        );
+        assert_eq!(r.removed, ["g|s"]);
+        assert!(!dir.join("s.dat").exists() && !dir.join("s.json").exists());
+        assert_eq!(std::fs::read(dir.join("s.dat.old")).unwrap(), b"old dat");
+    }
+
+    #[test]
+    fn up_to_date_and_unknown_dats_are_left_alone_and_cancel_stops() {
+        let f = fx();
+        let root = tmp("idle");
+        let i = info("g", "s", "1", "d");
+        let local = seed(&root, &i, true);
+        let mut plan = Plan {
+            pairs: vec![
+                Pair {
+                    key: "g|s".into(),
+                    local: Some(local),
+                    remote: Some(i.clone()),
+                    status: DatUpdate::Good,
+                    checked: false,
+                },
+                Pair {
+                    key: "u|x".into(),
+                    local: None,
+                    remote: None,
+                    status: DatUpdate::Unknown,
+                    checked: true,
+                },
+            ],
+            warnings: vec![],
+        };
+        assert_eq!(
+            fetch_all(&f, &root, &mut plan, &[], &FetchOptions::default()),
+            FetchReport::default()
+        );
+        assert!(f.srv.requests().is_empty());
+        // Cancelled before the first DAT: nothing is asked.
+        let cancel = CancelFlag::new();
+        cancel.cancel();
+        let mut plan = available(&i);
+        let r = Vault::new(&f.client, KEY).unwrap().fetch(
+            &root,
+            &mut plan,
+            &[group("b", "g")],
+            &FetchOptions::default(),
+            &NoProgress,
+            &cancel,
+        );
+        assert!(r.cancelled);
+        assert!(f.srv.requests().is_empty());
+    }
+
+    #[test]
+    fn symlinks_under_the_dat_root_are_not_followed() {
+        let base = tmp("link");
+        let root = base.join("DatRoot");
+        std::fs::create_dir_all(&root).unwrap();
+        let outside = base.join("outside");
+        seed(&outside, &info("g", "s", "1", "d"), true);
+        std::os::unix::fs::symlink(&outside, root.join("link")).unwrap();
+        assert!(read_seeds(&root).0.is_empty());
+    }
+
+    #[test]
+    fn a_fault_that_echoes_the_key_does_not_reach_the_report() {
+        let f = fx();
+        f.st.lock().unwrap().faulting.insert("GetDVDat".into());
+        let root = tmp("echo");
+        let i = info("g", "s", "1", "d");
+        let mut plan = available(&i);
+        let r = fetch_all(
+            &f,
+            &root,
+            &mut plan,
+            &[group("b", "g")],
+            &FetchOptions::default(),
+        );
+        assert!(!format!("{r:?}").contains(KEY));
+        let _ = fault("unused");
+    }
+}
