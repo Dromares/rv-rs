@@ -114,6 +114,8 @@ pub struct Opened {
     pub db: Database,
     pub source: LoadSource,
     pub took: Duration,
+    /// There was no cache file, so this is a new empty database (ROMVault's first run).
+    pub created: bool,
 }
 
 impl Opened {
@@ -135,12 +137,14 @@ impl Opened {
 pub fn open_cache(settings: &Settings, allow_protected: bool) -> Result<Opened, EngineError> {
     check_paths(settings, allow_protected)?;
     let start = Instant::now();
+    let created = matches!(cache_path(settings).try_exists(), Ok(false));
     let (db, source) = load_database(&cache_path(settings), settings, DatabaseOptions::default())
         .map_err(EngineError::Cache)?;
     Ok(Opened {
         db,
         source,
         took: start.elapsed(),
+        created,
     })
 }
 

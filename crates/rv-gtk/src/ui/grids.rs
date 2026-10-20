@@ -98,21 +98,21 @@ impl GameGrid {
         let kind = text_column::<GameRow>("Type", 56, false, |r| r.kind.to_owned(), |_| None);
         let name = text_column::<GameRow>(
             "Game (Directory / Zip)",
-            330,
+            230,
             false,
             |r| r.name.clone(),
             |_| None,
         );
         let description = text_column::<GameRow>(
             "Description",
-            260,
+            160,
             false,
             |r| r.description.clone(),
             |_| None,
         );
         let modified = text_column::<GameRow>(
             "Modified",
-            170,
+            140,
             false,
             |r| crate::model::time_text(r.modified),
             |_| None,
@@ -158,6 +158,8 @@ impl GameGrid {
         scroll.set_child(Some(&view));
         scroll.set_hexpand(true);
         scroll.set_vexpand(true);
+        // Columns past the right edge are reached by scrolling; show that there is a bar.
+        scroll.set_overlay_scrolling(false);
 
         let grid = Rc::new(GameGrid {
             scroll,
@@ -326,7 +328,7 @@ impl RomGrid {
         let col = |title: &str, width: i32, expand: bool, text: fn(&RomRow) -> String| -> C {
             text_column::<RomRow>(title, width, expand, text, |r| Some(r.rep_status))
         };
-        let rom = col("ROM (File)", 340, true, |r| r.name.clone());
+        let rom = col("ROM (File)", 300, true, |r| r.name.clone());
         let merge = col("Merge", 160, false, |r| r.merge.clone());
         let size = col("Size", 100, false, |r| r.size.clone());
         let crc = col("CRC32", 110, false, |r| r.crc.clone());
@@ -350,6 +352,8 @@ impl RomGrid {
         scroll.set_child(Some(&view));
         scroll.set_hexpand(true);
         scroll.set_vexpand(true);
+        // Columns past the right edge are reached by scrolling; show that there is a bar.
+        scroll.set_overlay_scrolling(false);
         RomGrid {
             scroll,
             list,

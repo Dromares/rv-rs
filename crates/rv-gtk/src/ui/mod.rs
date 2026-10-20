@@ -107,6 +107,8 @@ pub struct Finished {
     pub took: Duration,
     /// Set when the load fell back to the cache's backup file.
     pub notice: Option<String>,
+    /// Set when there was no cache file and the load made a new empty database.
+    pub created: bool,
 }
 
 #[derive(Debug)]
@@ -169,6 +171,8 @@ struct Progress {
     errors: gtk4::TextBuffer,
     error_expander: gtk4::Expander,
     error_count: std::cell::Cell<usize>,
+    /// Cancel was pressed: the engine stops after the file it is on, and says so until then.
+    cancelling: std::cell::Cell<bool>,
     /// Which run the pulsing of the bar belongs to; a new run stops the old timer.
     pulse: Rc<std::cell::Cell<u64>>,
 }
@@ -240,6 +244,21 @@ fn set_bar(bar: &gtk4::ProgressBar, done: u64, total: u64) {
     } else {
         bar.set_fraction((done as f64 / total as f64).clamp(0.0, 1.0));
         bar.set_text(Some(&format!("{done} / {total}")));
+    }
+}
+
+/// Shown from the click on Cancel until the engine has stopped; it only checks between files.
+const CANCELLING: &str = "Cancelling... finishing the file in progress";
+
+/// The status line after the cache was read.
+fn load_status(took: Duration, rows: usize, created: bool) -> String {
+    if created {
+        format!("No cache file yet: a new empty database was created; {rows} rows in the tree")
+    } else {
+        format!(
+            "Cache loaded in {:.2} s; {rows} rows in the tree",
+            took.as_secs_f64()
+        )
     }
 }
 
@@ -324,6 +343,7 @@ impl App {
                     db: o.db,
                     result: Ok(None),
                     took: o.took,
+                    created: o.created,
                 })
                 .map_err(|e| e.to_string());
             let _ = tx.send(Msg::Loaded(Opaque(result)));
@@ -365,6 +385,7 @@ impl App {
                 result,
                 took: start.elapsed(),
                 notice: None,
+                created: false,
             })));
         });
     }
@@ -397,6 +418,7 @@ impl App {
         p.cancel.set_sensitive(!indeterminate);
         p.errors.set_text("");
         p.error_count.set(0);
+        p.cancelling.set(false);
         p.error_expander.set_visible(false);
         p.revealer.set_reveal_child(true);
         let run = p.pulse.get() + 1;
@@ -417,6 +439,8 @@ impl App {
     fn progress(&self, event: ProgressEvent) {
         let p = &self.w.progress;
         match event {
+            // Keep saying "Cancelling" until the engine stops; its own titles would hide it.
+            ProgressEvent::Text(_) if p.cancelling.get() => {}
             ProgressEvent::Text(t) => set_text_bold(&p.title, &t),
             ProgressEvent::Item(t) => p.item.set_text(&t),
             ProgressEvent::Detail(t) => p.detail.set_text(&t),
@@ -507,12 +531,8 @@ impl App {
         ));
     }
 
-    fn report_load_time(&self, took: Duration) {
-        self.status(&format!(
-            "Cache loaded in {:.2} s; {} rows in the tree",
-            took.as_secs_f64(),
-            count_rows(&self.tree_rows)
-        ));
+    fn report_load_time(&self, took: Duration, created: bool) {
+        self.status(&load_status(took, count_rows(&self.tree_rows), created));
         let started = self.args.started;
         eprintln!(
             "rv-gtk: cache loaded in {} ms ({} ms after start); waiting for the first frame",
@@ -742,6 +762,13 @@ impl SimpleComponent for App {
         info_fields.add_css_class("dim-label");
         let info_counts = gtk4::Label::new(None);
         info_counts.set_xalign(0.0);
+        // Keep the room of a DAT's title, four fields and the counts, so that the filter row and
+        // the lists do not move when the selection changes between a folder and a DAT.
+        let line = info_title.create_pango_layout(Some("Ag")).pixel_size().1;
+        info_title.set_height_request(line);
+        info_fields.set_height_request(line * INFO_FIELD_LINES);
+        info_fields.set_yalign(0.0);
+        info_counts.set_height_request(line);
 
         let filter_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
         filter_box.set_margin_start(6);
@@ -930,7 +957,7 @@ impl SimpleComponent for App {
                     Ok(f) => {
                         self.db = Some(f.db);
                         self.show_tree(f.tree);
-                        self.report_load_time(f.took);
+                        self.report_load_time(f.took, f.created);
                         if let Some(n) = &f.notice {
                             self.show_banner(Some(n));
                         }
@@ -992,6 +1019,9 @@ impl SimpleComponent for App {
                 if let Some(t) = &self.task {
                     t.cancel.cancel();
                     self.w.progress.cancel.set_sensitive(false);
+                    self.w.progress.cancelling.set(true);
+                    set_text_bold(&self.w.progress.title, CANCELLING);
+                    self.status(CANCELLING);
                 }
             }
             Msg::Tree(Opaque(e)) => match e {
@@ -1153,9 +1183,13 @@ fn build_progress(sender: &ComponentSender<App>) -> Progress {
         errors,
         error_expander,
         error_count: std::cell::Cell::new(0),
+        cancelling: std::cell::Cell::new(false),
         pulse: Rc::default(),
     }
 }
+
+/// Lines of DAT fields (description, version, author, date) the info panel always has room for.
+const INFO_FIELD_LINES: i32 = 4;
 
 /// The smallest the main window may be made.
 const MIN_WINDOW: (i32, i32) = (1000, 600);
@@ -1167,8 +1201,11 @@ const APP_CSS: &str = "\
     :focus-visible { outline-color: #1c71d8; outline-width: 2px; }\n\
     /* Adwaita dims at 0.55, which fails 4.5:1 for the counts, info text, status line and headers. */\n\
     .dim-label { opacity: 0.75; }\n\
-    .rv-banner { background-color: mix(@error_color, @window_bg_color, 0.15); \
-                 color: @window_fg_color; padding: 8px; }\n\
+    /* The theme's header text is a fixed grey (#979a9b light, #90908f dark). */\n\
+    columnview.view > header > button { color: @theme_fg_color; }\n\
+    /* Tinted over the window colour, so it follows the light or dark scheme. */\n\
+    .rv-banner { background-color: alpha(#e01b24, 0.18); border-left: 4px solid #e01b24; \
+                 padding: 8px; }\n\
     .rv-key-chip { border: 1px solid rgba(0,0,0,0.35); border-radius: 3px; padding: 2px 8px; }\n";
 
 fn install_css() {
@@ -1197,4 +1234,18 @@ pub fn run(args: Args) {
             .next()
             .unwrap_or_else(|| "rv-gtk".to_owned())])
         .run::<App>(args);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_missing_cache_is_not_reported_as_loaded() {
+        let loaded = load_status(Duration::from_millis(190), 29, false);
+        assert_eq!(loaded, "Cache loaded in 0.19 s; 29 rows in the tree");
+        let created = load_status(Duration::from_millis(0), 2, true);
+        assert!(created.contains("new empty database"), "{created}");
+        assert!(!created.contains("loaded"), "{created}");
+    }
 }
