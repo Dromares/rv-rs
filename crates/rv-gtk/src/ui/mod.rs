@@ -362,7 +362,7 @@ impl App {
         self.w.online.set_sensitive(ready);
         // Settings has to work when the cache could not be loaded: that is how it gets fixed.
         self.w.settings.set_sensitive(!self.busy());
-        // Find Fixes and Fix are rv-fix, Phase 5b: present, off, with the reason.
+        // Find Fixes and Fix are not wired to rv-fix yet: present, off, with the reason.
         for b in [&self.w.find_fixes, &self.w.fix] {
             b.set_sensitive(false);
             b.set_tooltip_text(Some(engine::FIX_PENDING));
