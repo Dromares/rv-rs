@@ -1,7 +1,7 @@
 //! The main window.
 //!
 //! The window owns the database while it is idle and hands it to a worker thread for an
-//! operation (loading the cache, updating DATs, scanning); the thread gives it back with the
+//! operation (loading the cache, updating DATs, scanning, finding fixes, fixing); the thread gives it back with the
 //! result. While it is away the tree and lists stay as they were and the buttons are off, so the
 //! UI thread never waits for the engine and never reads a database that is being changed.
 //! Everything the engine does is a call into [`crate::engine`].
