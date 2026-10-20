@@ -123,6 +123,15 @@ pub fn decode_group_info(bytes: &[u8]) -> Result<Option<Vec<DatInfo>>> {
         .map_err(|e| bad(e.to_string()))
 }
 
+/// A group listing as the service sends it (Zstandard over the JSON). For the tests and the mock.
+#[cfg(any(test, feature = "mock"))]
+pub fn encode_group_info(infos: &[DatInfo]) -> Vec<u8> {
+    ruzstd::encoding::compress_to_vec(
+        &serde_json::to_vec(infos).expect("serializable")[..],
+        ruzstd::encoding::CompressionLevel::Uncompressed,
+    )
+}
+
 // ---- names from the server become paths -------------------------------------------------------
 
 /// The parts of a relative path the server named, `\` taken for `/` (`FixSlash`). `..`, an
