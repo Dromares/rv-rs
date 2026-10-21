@@ -843,7 +843,7 @@ fn a_refusal_names_the_safety_switch() {
     let mut s = t.settings();
     s.dir_mappings = vec![rv_core::DirMapping {
         dir_key: "RomVault".to_owned(),
-        dir_path: "/mnt/HHD16TB/Roms/RomVault/RomRoot".to_owned(),
+        dir_path: "/mnt/HHD16TB/rv-rs-dan1884-nonexistent/RomVault/RomRoot".to_owned(),
     }];
     let e = engine::check_paths(&s, false).unwrap_err();
     let text = e.to_string();
@@ -855,7 +855,9 @@ fn a_refusal_names_the_safety_switch() {
         "{text}"
     );
     assert!(
-        text.contains("DirMapping RomVault (/mnt/HHD16TB/Roms/RomVault/RomRoot)"),
+        text.contains(
+            "DirMapping RomVault (/mnt/HHD16TB/rv-rs-dan1884-nonexistent/RomVault/RomRoot)"
+        ),
         "{text}"
     );
     assert!(

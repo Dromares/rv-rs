@@ -1224,7 +1224,7 @@ mod tests {
         let mut fenced = Settings::default();
         fenced.dir_mappings = vec![DirMapping {
             dir_key: "RomVault".to_owned(),
-            dir_path: "/mnt/HHD16TB/Roms/RomVault/RomRoot".to_owned(),
+            dir_path: "/mnt/HHD16TB/rv-rs-dan1884-nonexistent/RomVault/RomRoot".to_owned(),
         }];
         let Err(Refusal::Protected(found)) = validate(&mut fenced, &prefs) else {
             panic!("the guard should refuse a ROM root under the protected directory");
@@ -1241,7 +1241,7 @@ mod tests {
             "{text}"
         );
         assert!(
-            text.contains("/mnt/HHD16TB/Roms/RomVault/RomRoot"),
+            text.contains("/mnt/HHD16TB/rv-rs-dan1884-nonexistent/RomVault/RomRoot"),
             "{text}"
         );
 
