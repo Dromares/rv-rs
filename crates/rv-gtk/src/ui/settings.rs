@@ -394,6 +394,9 @@ fn rules_page(s: &Shared) -> gtk4::Paned {
     let form = gtk4::ScrolledWindow::new();
     form.set_hexpand(true);
     form.set_vexpand(true);
+    // The form is taller than the dialog: a scrollbar that is always there says so at rest, not
+    // only once the pointer is over it.
+    form.set_overlay_scrolling(false);
 
     let fill = {
         let (s, list) = (s.clone(), list.clone());

@@ -472,7 +472,7 @@ impl App {
     fn show_banner(&self, text: Option<&str>) {
         match text {
             Some(t) => {
-                self.w.banner_text.set_text(t);
+                self.w.banner_text.set_text(&engine::plain_os_errors(t));
                 // Every refusal of the guard names the switch (see `EngineError`), whichever
                 // path it took to get here, so that is what the button is offered for.
                 self.w
@@ -536,8 +536,11 @@ impl App {
         match engine::read_settings(&self.config_path) {
             Ok(s) => self.settings = s,
             Err(e) => {
-                self.show_banner(Some(&e.to_string()));
+                self.show_banner(Some(&format!(
+                    "{e}\nFix or remove the file, then start rv-gtk again."
+                )));
                 self.db = None;
+                self.status("Not loaded: settings file");
                 self.update_buttons();
                 return;
             }

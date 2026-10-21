@@ -89,13 +89,74 @@ pub fn safety_switch_location() -> String {
     )
 }
 
-/// The refusal without the way out: the heading and one line per setting.
+/// The refusal without the way out: a heading per protected directory and one line per setting
+/// under it, so the directory is named once and not on every line.
 pub fn protected_list(violations: &[guard::Violation]) -> String {
-    let mut text = "refusing to work in a protected directory:".to_owned();
-    for violation in violations {
-        text.push_str(&format!("\n  {violation}"));
+    let mut prefixes: Vec<&str> = Vec::new();
+    for v in violations {
+        if !prefixes.contains(&v.prefix) {
+            prefixes.push(v.prefix);
+        }
+    }
+    let mut text = String::new();
+    for prefix in prefixes {
+        if !text.is_empty() {
+            text.push('\n');
+        }
+        text.push_str(&format!(
+            "refusing to work in the protected directory {prefix}:"
+        ));
+        for v in violations.iter().filter(|v| v.prefix == prefix) {
+            text.push_str(&format!("\n  {} ({})", v.setting, v.path));
+        }
     }
     text
+}
+
+/// What went wrong with a file, in words, not the system's `Permission denied (os error 13)`.
+pub fn io_reason(e: &std::io::Error) -> String {
+    use std::io::ErrorKind;
+    match e.kind() {
+        ErrorKind::PermissionDenied => "permission denied".to_owned(),
+        ErrorKind::NotFound => "no such file or directory".to_owned(),
+        _ => plain_os_errors(&e.to_string()),
+    }
+}
+
+/// `text` without the " (os error N)" the standard library puts after a system message.
+pub fn plain_os_errors(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find(" (os error ") {
+        let after = &rest[at + " (os error ".len()..];
+        match after.find(')') {
+            Some(end) if after[..end].bytes().all(|b| b.is_ascii_digit()) && end > 0 => {
+                out.push_str(&rest[..at]);
+                rest = &after[end + 1..];
+            }
+            _ => {
+                out.push_str(&rest[..at + 1]);
+                rest = &rest[at + 1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// A settings file that exists and cannot be used, said to the person who has to fix it. `detail`
+/// is the parser's: `settings: XML: syntax error: tag not closed: ...`.
+fn unusable_settings_file(path: &Path, detail: &str) -> String {
+    let detail = detail.strip_prefix("settings: ").unwrap_or(detail);
+    let why = match detail.strip_prefix("XML: ") {
+        Some("no root element") => "the file is empty or has no settings in it".to_owned(),
+        Some(xml) => format!("it is not well-formed XML ({xml})"),
+        None => detail.to_owned(),
+    };
+    format!(
+        "The settings file {} cannot be used: {why}.",
+        path.display()
+    )
 }
 
 /// What the settings dialog's OK does with its result: refuse a settings file that cannot be
@@ -126,9 +187,14 @@ pub fn commit_settings(
 /// ROMVault's.
 pub fn read_settings(path: &Path) -> Result<Settings, EngineError> {
     match std::fs::read_to_string(path) {
-        Ok(text) => Settings::from_xml(&text).map_err(|e| EngineError::Settings(e.to_string())),
+        Ok(text) => Settings::from_xml(&text)
+            .map_err(|e| EngineError::Settings(unusable_settings_file(path, &e.to_string()))),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Settings::default()),
-        Err(e) => Err(EngineError::Settings(format!("{}: {e}", path.display()))),
+        Err(e) => Err(EngineError::Settings(format!(
+            "The settings file {} cannot be read: {}.",
+            path.display(),
+            io_reason(&e)
+        ))),
     }
 }
 
@@ -140,7 +206,8 @@ pub fn write_settings(path: &Path, settings: &Settings) -> Result<(), EngineErro
     let mut tmp = path.as_os_str().to_owned();
     tmp.push(".tmp");
     let tmp = PathBuf::from(tmp);
-    let werr = |e: std::io::Error| EngineError::Write(format!("{}: {e}", path.display()));
+    let werr =
+        |e: std::io::Error| EngineError::Write(format!("{}: {}", path.display(), io_reason(&e)));
     std::fs::write(&tmp, text).map_err(werr)?;
     std::fs::rename(&tmp, path).map_err(werr)
 }
