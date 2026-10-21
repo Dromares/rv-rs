@@ -66,10 +66,53 @@ where FUSE works) and see the window open.
 Also check that the draft's commit (`gh release view v0.1.0 --json targetCommitish`) is the
 commit you meant, and that the run that made it (linked in the draft's notes) was green.
 
+### Run the network path of the draft's `rv`
+
+`--version` and `--help` never touch the network. 0.1.0 and 0.2.0 passed them and then panicked
+on the first `https://` request (`No CryptoProvider for Rustls`). So run `rv update check` from
+the draft's own downloaded `rv-linux-x86_64`, in an empty directory, with an empty `HOME`:
+
+```sh
+mkdir /tmp/rv-draft-net && cp /tmp/rv-draft/rv-linux-x86_64 /tmp/rv-draft-net/ && cd /tmp/rv-draft-net
+env HOME=$(mktemp -d) ./rv-linux-x86_64 update check --update-config $PWD/update.conf; echo exit=$?
+```
+
+(`--update-config` is the flag `rv --help` lists for the update settings; the file need not
+exist, and the empty `HOME` keeps your own `~/.config/rv-rs/update.conf` out of it.)
+
+A pass is exactly this, and paste it as it came out:
+
+```
+rv <draft version> is up to date (the newest release is <latest published version>).
+exit=0
+```
+
+with nothing on stderr, and no `panicked` or `CryptoProvider` anywhere. Any other result fails
+the draft:
+
+* `rv: cannot check for updates: ...` and `exit=1`: the request failed (a TLS error, no network,
+  or the anonymous API rate limit). A rate limit is not a pass; wait and run it again.
+* `rv <draft version>: version X is available: <url>` (and a second line, "Run rv update install
+  to install it."): the newest *published* release is newer than the draft, so this is the wrong
+  draft, or the version in `Cargo.toml` was not raised.
+
+This is a valid check against a draft because the anonymous API sees only the published Latest,
+never the draft: the binary compares its own version with that Latest, and the request is still a
+real TLS call to `api.github.com`. Its first line names the Latest, so check that it is the
+release you expect.
+
+The AppImage and `rv-gtk-linux-x86_64` cannot take this step: `rv-gtk` has no `update`
+subcommand (`./rv-gtk-x86_64.AppImage update check` prints `unknown argument update` and its
+usage) and its updater runs inside the window. It uses the same `rv-update` crate as `rv`, so
+the draft's `rv` is the command-line evidence of that code, and no more.
+
 ## Publish (the board)
 
 Publishing is not done by the workflow, by `rv`, or by an agent. When the draft is right, publish
-it in the GitHub UI (or `gh release edit v0.1.0 --draft=false`). Publishing creates the tag at
+it in the GitHub UI (or `gh release edit v0.1.0 --draft=false`). Do not run
+`gh release edit --draft=false` (or press the button) unless the verdict on the draft check for
+these assets pastes the output of the "Run the network path" step above. If the assets have not
+changed since that output, reuse it; do not run it again. Publishing creates the tag at
 the draft's commit. For a stable release, leave "Set as the latest release" on: `rv update
 check` reads `releases/latest`.
 
