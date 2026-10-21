@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The rv-rs icon, drawn for this project: three stacked rows of a library list with a check
+     mark. Nothing in it comes from ROMVault. Licensed with the rest of the repository. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <rect x="16" y="16" width="224" height="224" rx="48" fill="#1b3a5c"/>
+  <rect x="40" y="52" width="176" height="36" rx="10" fill="#3584e4"/>
+  <rect x="40" y="100" width="176" height="36" rx="10" fill="#62a0ea"/>
+  <rect x="40" y="148" width="176" height="36" rx="10" fill="#99c1f1"/>
+  <rect x="56" y="62" width="48" height="16" rx="4" fill="#ffffff" fill-opacity="0.85"/>
+  <rect x="56" y="110" width="72" height="16" rx="4" fill="#ffffff" fill-opacity="0.85"/>
+  <rect x="56" y="158" width="36" height="16" rx="4" fill="#ffffff" fill-opacity="0.85"/>
+  <circle cx="188" cy="188" r="40" fill="#26a269" stroke="#1b3a5c" stroke-width="8"/>
+  <path d="M168 189 L183 204 L210 174" fill="none" stroke="#ffffff" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

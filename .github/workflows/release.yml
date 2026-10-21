@@ -1,7 +1,7 @@
 name: Release (draft only)
 
-# Builds `rv` and `rv-gtk` for Linux x86_64 at the dispatched commit and creates a DRAFT release
-# with the two files and a SHA256SUMS. Nothing is published: publishing is a manual step by the
+# Builds `rv` and `rv-gtk` for Linux x86_64 at the dispatched commit, packs `rv-gtk` as an
+# AppImage, and creates a DRAFT release with the three files and a SHA256SUMS. Nothing is published: publishing is a manual step by the
 # board (see RELEASING.md). This workflow
 #   - runs only when dispatched by hand (workflow_dispatch), never on a push or a tag;
 #   - never pushes a git tag (a draft release has no tag until it is published);
@@ -69,7 +69,7 @@ jobs:
       - name: Build rv and rv-gtk
         run: cargo build --release --locked -p rv-cli -p rv-gtk
 
-      - name: Collect the files, check their version, write SHA256SUMS
+      - name: Collect the files and check their version
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
@@ -81,8 +81,64 @@ jobs:
           # The file must say the version the tag says.
           [ "$(./dist/rv-linux-x86_64 --version)" = "rv $VERSION" ]
           [ "$(./dist/rv-gtk-linux-x86_64 --version)" = "rv-gtk $VERSION" ]
+
+      # Every tool is a fixed release (or, for the GTK plugin, a fixed commit: that repository
+      # makes no releases) AND is checked against the SHA-256 below before it is used. A tool
+      # that does not match fails the job. To move to a newer one, change the URL and the hash
+      # together, in a pull request.
+      - name: Download the AppImage tools (pinned, SHA-256 checked)
+        run: |
+          set -eu
+          mkdir tools
+          cd tools
+          fetch() { # name url sha256
+            curl --fail --silent --show-error --location --retry 3 --output "$1" "$2"
+            echo "$3  $1" | sha256sum --check --strict -
+          }
+          # linuxdeploy 1-alpha-20251107-1
+          fetch linuxdeploy-x86_64.AppImage \
+            https://github.com/linuxdeploy/linuxdeploy/releases/download/1-alpha-20251107-1/linuxdeploy-x86_64.AppImage \
+            c20cd71e3a4e3b80c3483cef793cda3f4e990aca14014d23c544ca3ce1270b4d
+          # linuxdeploy-plugin-gtk, commit 3b67a1d1c1b0c8268f57f2bce40fe2d33d409cea
+          fetch linuxdeploy-plugin-gtk.sh \
+            https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/3b67a1d1c1b0c8268f57f2bce40fe2d33d409cea/linuxdeploy-plugin-gtk.sh \
+            b0f4cbc684a0103a9651f0955b635eaea0096b3a66c0f5a2c2aa337960375171
+          # appimagetool 1.9.1
+          fetch appimagetool-x86_64.AppImage \
+            https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage \
+            ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
+          # type2-runtime 20251108: the static runtime that goes at the head of the AppImage
+          fetch runtime-x86_64 \
+            https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64 \
+            2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d
+
+      - name: Install what the AppImage build needs
+        run: sudo apt-get install -y --no-install-recommends squashfs-tools desktop-file-utils dpkg-dev libgdk-pixbuf2.0-bin librsvg2-common adwaita-icon-theme
+
+      - name: Build rv-gtk-x86_64.AppImage
+        run: |
+          set -eu
+          RV_GTK="$PWD/dist/rv-gtk-linux-x86_64" \
+          OUT="$PWD/dist/rv-gtk-x86_64.AppImage" \
+          LINUXDEPLOY="$PWD/tools/linuxdeploy-x86_64.AppImage" \
+          GTK_PLUGIN="$PWD/tools/linuxdeploy-plugin-gtk.sh" \
+          APPIMAGETOOL="$PWD/tools/appimagetool-x86_64.AppImage" \
+          RUNTIME="$PWD/tools/runtime-x86_64" \
+            packaging/build-appimage.sh
+
+      # The runner has no FUSE, so the AppImage unpacks itself to run.
+      - name: Check the AppImage's version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -eu
+          [ "$(APPIMAGE_EXTRACT_AND_RUN=1 ./dist/rv-gtk-x86_64.AppImage --version)" = "rv-gtk $VERSION" ]
+
+      - name: Write SHA256SUMS
+        run: |
+          set -eu
           cd dist
-          sha256sum rv-linux-x86_64 rv-gtk-linux-x86_64 > SHA256SUMS
+          sha256sum rv-linux-x86_64 rv-gtk-linux-x86_64 rv-gtk-x86_64.AppImage > SHA256SUMS
           sha256sum -c SHA256SUMS
           cat SHA256SUMS
 
@@ -99,6 +155,6 @@ jobs:
           flags="--draft --latest=false"
           if [ "$PRERELEASE" = "true" ]; then flags="$flags --prerelease"; fi
           # shellcheck disable=SC2086
-          gh release create "$TAG" dist/rv-linux-x86_64 dist/rv-gtk-linux-x86_64 dist/SHA256SUMS \
+          gh release create "$TAG" dist/rv-linux-x86_64 dist/rv-gtk-linux-x86_64 dist/rv-gtk-x86_64.AppImage dist/SHA256SUMS \
             $flags --target "$GITHUB_SHA" --title "rv-rs $VERSION" \
             --notes "Draft built from $GITHUB_SHA by workflow run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. Not published: check the files against SHA256SUMS (RELEASING.md) before publishing."

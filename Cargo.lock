@@ -1287,7 +1287,7 @@ dependencies = [
 
 [[package]]
 name = "rv-archive"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "bzip2-rs",
  "crc32fast",
@@ -1304,14 +1304,14 @@ dependencies = [
 
 [[package]]
 name = "rv-cache"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "rv-core",
 ]
 
 [[package]]
 name = "rv-cli"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "ctrlc",
  "rv-archive",
@@ -1326,7 +1326,7 @@ dependencies = [
 
 [[package]]
 name = "rv-core"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "quick-xml",
  "regex",
@@ -1334,7 +1334,7 @@ dependencies = [
 
 [[package]]
 name = "rv-dat"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "encoding_rs",
  "flate2",
@@ -1345,7 +1345,7 @@ dependencies = [
 
 [[package]]
 name = "rv-fix"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "crc32fast",
  "rv-archive",
@@ -1357,7 +1357,7 @@ dependencies = [
 
 [[package]]
 name = "rv-gtk"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "gtk4",
  "relm4",
@@ -1373,7 +1373,7 @@ dependencies = [
 
 [[package]]
 name = "rv-online"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "aes",
  "cbc",
@@ -1393,7 +1393,7 @@ dependencies = [
 
 [[package]]
 name = "rv-scan"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "crc32fast",
  "md-5 0.10.6",
@@ -1407,7 +1407,7 @@ dependencies = [
 
 [[package]]
 name = "rv-update"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "rustls",
  "rv-update",
