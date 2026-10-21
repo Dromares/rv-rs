@@ -1685,6 +1685,12 @@ pub fn run(args: Args) {
         // First thing the program does, before any thread exists.
         std::env::set_var("GTK_USE_PORTAL", "1");
     }
+    // GTK takes the Wayland app id from the program name, and in an AppImage that is "AppRun.wrapped"
+    // (the symlink the runtime starts). The id the desktop file is named after is the one the
+    // window should carry. Outside an AppImage nothing changes.
+    if rv_update::appimage::running().is_some() {
+        gtk4::glib::set_prgname(Some("rs.rv.gtk"));
+    }
     relm4::RelmApp::new("rs.rv.gtk")
         .with_args(vec![std::env::args()
             .next()

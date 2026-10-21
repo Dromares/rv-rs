@@ -82,7 +82,7 @@ to clean). Delete test drafts the same way once you are done with them.
 
 * Linux x86_64 only. The files are linked against the glibc of `ubuntu-latest`. The plain
   `rv-gtk` needs GTK 4.12 or newer installed; the AppImage carries its own GTK4 but not glibc, so
-  it needs a glibc at least as new as the one it was built with.
+  it needs a glibc at least as new as the one it was built with (the test build on Ubuntu 24.04 needs 2.38).
 * An AppImage updates itself from the AppImage of a newer release: a release without
   `rv-gtk-x86_64.AppImage` (0.2.1 and earlier) cannot update one.
 * The update check reads `releases/latest` anonymously; GitHub rate-limits anonymous API calls

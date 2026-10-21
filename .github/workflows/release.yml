@@ -1,8 +1,8 @@
 name: Release (draft only)
 
 # Builds `rv` and `rv-gtk` for Linux x86_64 at the dispatched commit, packs `rv-gtk` as an
-# AppImage, and creates a DRAFT release with the three files and a SHA256SUMS. Nothing is published: publishing is a manual step by the
-# board (see RELEASING.md). This workflow
+# AppImage, and creates a DRAFT release with the three files and a SHA256SUMS. Nothing is
+# published: publishing is a manual step by the board (see RELEASING.md). This workflow
 #   - runs only when dispatched by hand (workflow_dispatch), never on a push or a tag;
 #   - never pushes a git tag (a draft release has no tag until it is published);
 #   - never publishes and never marks a release as the latest one;
