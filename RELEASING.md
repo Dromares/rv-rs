@@ -15,10 +15,16 @@ the tag name). At the commit it is dispatched on it:
 3. builds `rv` and `rv-gtk` for Linux x86_64 (`cargo build --release --locked`, on
    `ubuntu-latest` with `libgtk-4-dev`), strips them, and checks that `rv --version` and
    `rv-gtk --version` print the version the tag names;
-4. writes `SHA256SUMS` for the two files;
-5. creates a **draft** release for the tag with `rv-linux-x86_64`, `rv-gtk-linux-x86_64` and
-   `SHA256SUMS`, targeting that commit (`--draft --latest=false`; a pre-release version such as
-   `0.1.0-rc.1` is also flagged as a pre-release).
+4. packs the stripped `rv-gtk` as `rv-gtk-x86_64.AppImage` (`packaging/build-appimage.sh`):
+   GTK4 and what it loads are bundled, with their licence texts, behind the static type-2 runtime
+   (no `libfuse2` needed). The build tools (linuxdeploy, its GTK plugin, appimagetool, the
+   runtime) are downloaded from fixed release URLs (a fixed commit for the plugin) and each is
+   checked against a SHA-256 written in the workflow; a mismatch fails the job. The step then runs
+   the AppImage with `--version` and checks it prints the version the tag names;
+5. writes `SHA256SUMS` for the three files;
+6. creates a **draft** release for the tag with `rv-linux-x86_64`, `rv-gtk-linux-x86_64`,
+   `rv-gtk-x86_64.AppImage` and `SHA256SUMS`, targeting that commit (`--draft --latest=false`; a
+   pre-release version such as `0.1.0-rc.1` is also flagged as a pre-release).
 
 It has `contents: write` permission and uses the job's `GITHUB_TOKEN`; it uses no other secret.
 A draft release has no git tag: GitHub creates the tag only when the draft is published, so the
@@ -46,10 +52,16 @@ answer 404). Download its files with `gh`, which is authenticated:
 ```sh
 gh release download v0.1.0 --repo Dromares/rv-rs --dir /tmp/rv-draft
 cd /tmp/rv-draft
-sha256sum -c SHA256SUMS                  # both files: OK
+sha256sum -c SHA256SUMS                  # all three files: OK
+chmod +x rv-linux-x86_64 rv-gtk-linux-x86_64 rv-gtk-x86_64.AppImage   # gh does not keep the mode
 ./rv-linux-x86_64 --version              # rv 0.1.0
 ./rv-gtk-linux-x86_64 --version          # rv-gtk 0.1.0
+./rv-gtk-x86_64.AppImage --version       # rv-gtk 0.1.0
 ```
+
+The draft must list exactly `rv-linux-x86_64`, `rv-gtk-linux-x86_64`, `rv-gtk-x86_64.AppImage`
+and `SHA256SUMS`. Start the AppImage once (`./rv-gtk-x86_64.AppImage`, no flags, on a machine
+where FUSE works) and see the window open.
 
 Also check that the draft's commit (`gh release view v0.1.0 --json targetCommitish`) is the
 commit you meant, and that the run that made it (linked in the draft's notes) was green.
@@ -68,8 +80,11 @@ to clean). Delete test drafts the same way once you are done with them.
 
 ## Limits
 
-* Linux x86_64 only. The files are linked against the glibc of `ubuntu-latest` and `rv-gtk`
-  needs GTK 4.12 or newer installed.
+* Linux x86_64 only. The files are linked against the glibc of `ubuntu-latest`. The plain
+  `rv-gtk` needs GTK 4.12 or newer installed; the AppImage carries its own GTK4 but not glibc, so
+  it needs a glibc at least as new as the one it was built with (the test build on Ubuntu 24.04 needs 2.38).
+* An AppImage updates itself from the AppImage of a newer release: a release without
+  `rv-gtk-x86_64.AppImage` (0.2.1 and earlier) cannot update one.
 * The update check reads `releases/latest` anonymously; GitHub rate-limits anonymous API calls
   (60 an hour per address), and a check that is rate-limited is reported as an error, not as "up
   to date".

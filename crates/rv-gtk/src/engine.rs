@@ -624,15 +624,124 @@ pub fn install_update(up: &Update, target: &Path) -> Result<Installed, String> {
             up.page
         ));
     };
-    rv_update::install(up, &asset, target, &|_| {}).map_err(|e| match e {
+    install_asset(up, &asset, target)
+}
+
+fn install_asset(up: &Update, asset: &str, target: &Path) -> Result<Installed, String> {
+    rv_update::install(up, asset, target, &|_| {}).map_err(|e| match e {
         rv_update::Error::NotWritable { dir, why } => format!(
             "You cannot write in {} ({why}), so the update was not installed, and rv-gtk does not ask for more rights. Version {} is at {}: download it, check it against SHA256SUMS and copy it into place yourself.",
             dir.display(),
             up.version,
             up.page
         ),
+        rv_update::Error::NoAsset { .. } if asset == rv_update::appimage::ASSET => {
+            no_appimage(up)
+        }
         other => format!("The update was not installed: {other}"),
     })
+}
+
+/// What "Check for updates" replaces: the running binary, or the AppImage it runs from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum UpdateTarget {
+    /// A plain `rv-gtk` binary: `current_exe()`, replaced by `rv-gtk-linux-x86_64`.
+    Binary(PathBuf),
+    /// The AppImage file named by `$APPIMAGE` (`current_exe()` is inside its read-only mount),
+    /// replaced by `rv-gtk-x86_64.AppImage`, never by the bare binary.
+    AppImage(PathBuf),
+}
+
+impl UpdateTarget {
+    pub fn path(&self) -> &Path {
+        match self {
+            UpdateTarget::Binary(p) | UpdateTarget::AppImage(p) => p,
+        }
+    }
+}
+
+/// The file the running `rv-gtk` would replace (`$APPIMAGE` when it names an existing file).
+pub fn update_target() -> Result<UpdateTarget, String> {
+    update_target_from(rv_update::appimage::running(), std::env::current_exe())
+}
+
+/// [`update_target`] with the environment and `current_exe()` given.
+pub fn update_target_from(
+    appimage: Option<PathBuf>,
+    exe: std::io::Result<PathBuf>,
+) -> Result<UpdateTarget, String> {
+    match appimage {
+        Some(p) => Ok(UpdateTarget::AppImage(p)),
+        None => exe
+            .map(UpdateTarget::Binary)
+            .map_err(|e| format!("Cannot tell where rv-gtk is: {e}")),
+    }
+}
+
+/// The question put to the user for an [`UpdateTarget`].
+pub struct UpdateQuestion {
+    pub message: String,
+    pub detail: String,
+    /// False when there is nothing to install: the dialog then only informs.
+    pub can_install: bool,
+}
+
+fn no_appimage(up: &Update) -> String {
+    format!(
+        "There is no AppImage in release {}, so nothing was installed: the plain rv-gtk file is never put over an AppImage. Release page: {}",
+        up.tag, up.page
+    )
+}
+
+/// [`update_question`] for either kind of target. An AppImage whose new release has no AppImage
+/// is told so, with the release page, and is not offered an install.
+pub fn update_question_for(up: &Update, target: &UpdateTarget) -> UpdateQuestion {
+    match target {
+        UpdateTarget::Binary(p) => {
+            let (message, detail) = update_question(up, p);
+            UpdateQuestion {
+                message,
+                detail,
+                can_install: true,
+            }
+        }
+        UpdateTarget::AppImage(_) if up.asset(rv_update::appimage::ASSET).is_none() => {
+            UpdateQuestion {
+                message: format!(
+                    "Version {} is available, but not as an AppImage",
+                    up.version
+                ),
+                detail: no_appimage(up),
+                can_install: false,
+            }
+        }
+        UpdateTarget::AppImage(p) => UpdateQuestion {
+            message: format!("Version {} is available", up.version),
+            detail: format!(
+                "You have {}. If you go on, rv-gtk downloads {} and SHA256SUMS from release {}, \
+                 refuses to continue unless the file matches SHA256SUMS, and replaces the \
+                 AppImage {}. The old AppImage is kept as {}.\n\nRelease page: {}",
+                rv_update::current_version(),
+                rv_update::appimage::ASSET,
+                up.tag,
+                p.display(),
+                rv_update::install::backup_path(p).display(),
+                up.page
+            ),
+            can_install: true,
+        },
+    }
+}
+
+/// [`install_update`] for either kind of target.
+pub fn install_update_for(up: &Update, target: &UpdateTarget) -> Result<Installed, String> {
+    match target {
+        UpdateTarget::Binary(p) => install_update(up, p),
+        UpdateTarget::AppImage(p) => match Product::RvGtk.appimage_asset_name() {
+            Some(asset) => install_asset(up, asset, p),
+            None => Err(no_appimage(up)),
+        },
+    }
 }
 
 fn online_err(e: rv_online::Error) -> EngineError {

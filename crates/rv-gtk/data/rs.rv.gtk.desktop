@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=rv-rs
+GenericName=ROM collection manager
+Comment=Unofficial Linux rewrite of RomVault: scan, fix and update a ROM library
+Exec=rv-gtk
+Icon=rs.rv.gtk
+Terminal=false
+Categories=Utility;
+StartupWMClass=rs.rv.gtk
