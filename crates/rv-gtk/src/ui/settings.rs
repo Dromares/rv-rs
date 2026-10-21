@@ -995,7 +995,9 @@ pub fn show(
     error.set_xalign(0.0);
     error.set_wrap(true);
     error.set_selectable(true);
-    error.add_css_class("error");
+    // The banner's tint over the window colour: the theme's red text is under 4.5:1 on dark.
+    error.add_css_class("rv-banner");
+    error.set_visible(false);
     // Shown only with the guard's refusal: it ticks the Safety switch and applies.
     let allow_save = gtk4::Button::with_label("Allow and save");
     allow_save.set_halign(gtk4::Align::Start);
@@ -1082,6 +1084,7 @@ pub fn show(
                 }
                 Err(Refusal::Protected(violations)) => {
                     error.set_text(&Refusal::Protected(violations.clone()).to_string());
+                    error.set_visible(true);
                     allow_save.set_visible(true);
                     // The switch is on the General page, so show that page, with the focus on the
                     // first path the guard objects to (not on the button).
@@ -1101,6 +1104,7 @@ pub fn show(
                 }
                 Err(Refusal::Other(e)) => {
                     error.set_text(&e);
+                    error.set_visible(true);
                     allow_save.set_visible(false);
                 }
             }
