@@ -311,6 +311,13 @@ pub fn build_tree(root: &RvFile, show_new_mia: bool) -> Vec<Arc<DirNode>> {
     rows
 }
 
+/// Whether any row of the tree is a DAT's or holds DATs. A database without one is the first
+/// run (or a cache that was never given its DATs): the tree is just `RomVault` and `ToSort`.
+pub fn has_dats(rows: &[Arc<DirNode>]) -> bool {
+    rows.iter()
+        .any(|r| r.kind == FolderKind::Dat || has_dats(&r.children))
+}
+
 // ---- finding and changing a row ------------------------------------------------------------
 
 /// The directory at `path` (names from the root, as in [`DirNode::path`]).
@@ -989,6 +996,32 @@ mod tests {
         assert_eq!(nes.status.count_missing(false), 2);
         assert_eq!(nes.counts, "( Have: 3 \\ Missing: 2 )");
         assert_eq!(nes.label, "NES");
+    }
+
+    #[test]
+    fn a_tree_without_a_dat_directory_is_the_first_run() {
+        let mut rv = dir("RomVault", true);
+        rv.child_add(dir("NES", true));
+        let mut root = dir("", true);
+        root.child_add(rv);
+        let empty = build_tree(&root, true);
+        assert!(!has_dats(&empty));
+        assert!(!has_dats(&[]));
+
+        // One DAT, however deep, ends it.
+        let mut nes = dir("NES", true);
+        let mut dat = RvDat::new(0, DatFlags(0), Vec::new());
+        dat.uid = 7;
+        nes.dir_dats.push(dat);
+        let mut console = dir("Console", true);
+        console.child_add(nes);
+        let mut rv = dir("RomVault", true);
+        rv.child_add(console);
+        let mut root = dir("", true);
+        root.child_add(rv);
+        let rows = build_tree(&root, true);
+        assert_eq!(find(&rows, "RomVault/Console").kind, FolderKind::Directory);
+        assert!(has_dats(&rows));
     }
 
     #[test]

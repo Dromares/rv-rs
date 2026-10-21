@@ -919,6 +919,88 @@ fn a_refusal_names_the_safety_switch() {
 }
 
 #[test]
+fn a_refusal_names_the_protected_directory_once() {
+    let t = Tmp::new("once");
+    let mut s = t.settings();
+    s.dat_root = "/mnt/HHD16TB/rv-rs-dan1834-nonexistent/DatRoot".to_owned();
+    s.cache_file = "/mnt/HHD16TB/rv-rs-dan1834-nonexistent/RomVault3_3.Cache".to_owned();
+    let text = engine::check_paths(&s, false).unwrap_err().to_string();
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(
+        lines[..3],
+        [
+            "refusing to work in the protected directory /mnt/HHD16TB:",
+            "  DatRoot (/mnt/HHD16TB/rv-rs-dan1834-nonexistent/DatRoot)",
+            "  CacheFile (/mnt/HHD16TB/rv-rs-dan1834-nonexistent/RomVault3_3.Cache)",
+        ],
+        "{text}"
+    );
+    assert_eq!(
+        text.matches("/mnt/HHD16TB").count(),
+        // The heading, the two paths, and the switch's caption.
+        4,
+        "the prefix is not repeated on every line: {text}"
+    );
+}
+
+#[test]
+fn a_settings_file_that_cannot_be_used_is_explained_in_words() {
+    use std::os::unix::fs::PermissionsExt;
+    let t = Tmp::new("words");
+    let cfg = t.path("RomVault3cfg.xml");
+    let said = |cfg: &std::path::Path| match engine::read_settings(cfg) {
+        Err(EngineError::Settings(text)) => text,
+        other => panic!("{other:?}"),
+    };
+
+    fs::write(&cfg, "").unwrap();
+    let empty = said(&cfg);
+    assert!(
+        empty.ends_with("it is empty or cut short, so there are no settings to read."),
+        "{empty}"
+    );
+    assert!(empty.starts_with("The settings file "), "{empty}");
+    assert!(!empty.contains("XML: no root element"), "{empty}");
+
+    fs::write(&cfg, "<Settings><DatRoot").unwrap();
+    let broken = said(&cfg);
+    assert!(broken.contains("it is not well-formed XML ("), "{broken}");
+    assert!(!broken.contains("settings: XML:"), "{broken}");
+
+    fs::write(&cfg, "<Settings/>").unwrap();
+    fs::set_permissions(&cfg, fs::Permissions::from_mode(0o000)).unwrap();
+    if fs::read_to_string(&cfg).is_err() {
+        let denied = said(&cfg);
+        assert!(
+            denied.ends_with("cannot be read: permission denied."),
+            "{denied}"
+        );
+        assert!(!denied.contains("os error"), "{denied}");
+    }
+    fs::set_permissions(&cfg, fs::Permissions::from_mode(0o644)).unwrap();
+}
+
+#[test]
+fn the_systems_error_numbers_are_left_out_of_what_the_banner_says() {
+    assert_eq!(
+        engine::plain_os_errors("cache: x.Cache: Permission denied (os error 13)"),
+        "cache: x.Cache: Permission denied"
+    );
+    assert_eq!(
+        engine::plain_os_errors("a (os error 2) and b (os error 13)."),
+        "a and b."
+    );
+    // Not a number, or not closed: left as written.
+    assert_eq!(
+        engine::plain_os_errors("odd (os error x) and (os error 1"),
+        "odd (os error x) and (os error 1"
+    );
+    assert_eq!(engine::plain_os_errors("plain"), "plain");
+    let denied = std::io::Error::from_raw_os_error(13);
+    assert_eq!(engine::io_reason(&denied), "permission denied");
+}
+
+#[test]
 fn allow_and_save_saves_the_prefs_and_cancel_does_not() {
     let t = Tmp::new("allow");
     let mut s = t.settings();

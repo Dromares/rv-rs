@@ -32,7 +32,9 @@ fn main() {
     }
     let dir = std::env::temp_dir().join(format!("rv-gtk-smoke-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
-    let result = run(&dir).and_then(|()| refusal(&dir));
+    let result = run(&dir)
+        .and_then(|()| refusal(&dir))
+        .and_then(|()| first_run(&dir));
     let _ = fs::remove_dir_all(&dir);
     if let Err(e) = result {
         eprintln!("smoke: FAILED: {e}");
@@ -106,6 +108,12 @@ fn run(dir: &std::path::Path) -> Result<(), String> {
     }
     // At the minimum window size the whole filter row is inside the window.
     layout(&out, &err)?;
+    // With DATs in the tree there is no pointer to them, and no banner.
+    if flag(&out, "tree_hint=")? || flag(&out, "games_hint=")? {
+        return Err(format!(
+            "the first-run pointer is up over a collection:\n{out}"
+        ));
+    }
     // The cache was not rewritten by a smoke run.
     if !err.contains("first frame with the tree") {
         return Err(format!("the tree was never painted:\n{err}"));
@@ -189,6 +197,15 @@ fn layout(out: &str, err: &str) -> Result<i32, String> {
     number("games_height=")
 }
 
+/// A `true` or `false` of the layout line.
+fn flag(out: &str, key: &str) -> Result<bool, String> {
+    out.lines()
+        .find(|l| l.starts_with("smoke-layout:"))
+        .and_then(|l| l.split_whitespace().find_map(|w| w.strip_prefix(key)))
+        .map(|v| v == "true")
+        .ok_or_else(|| format!("no {key} in the layout report:\n{out}"))
+}
+
 /// A refusal of the guard at the minimum window: the banner is long, and the filter row and the
 /// games list must still be there. The path cannot exist on disk.
 fn refusal(dir: &std::path::Path) -> Result<(), String> {
@@ -201,6 +218,21 @@ fn refusal(dir: &std::path::Path) -> Result<(), String> {
     let (out, err) = run_window(&cfg, dir, &[])?;
     let height = layout(&out, &err)?;
     println!("smoke: refusal banner, games list {height} px high");
+    // Dismiss is the banner's last button: it is on the window at the minimum size too.
+    let dismiss = out
+        .lines()
+        .find(|l| l.starts_with("smoke-layout:"))
+        .and_then(|l| {
+            l.split_whitespace()
+                .find_map(|w| w.strip_prefix("dismiss_right="))
+        })
+        .and_then(|v| v.parse::<i32>().ok())
+        .ok_or_else(|| format!("no dismiss_right in the layout report:\n{out}"))?;
+    if !(1..=1000).contains(&dismiss) {
+        return Err(format!(
+            "the banner's Dismiss is not on the window ({dismiss}):\n{out}"
+        ));
+    }
     // The banner left the list 93 px (its header and about three rows) while the info block
     // kept its room, and 213 px once the block gave way.
     if height < 120 {
@@ -208,5 +240,26 @@ fn refusal(dir: &std::path::Path) -> Result<(), String> {
             "the games list is {height} px high under the refusal banner:\n{out}"
         ));
     }
+    Ok(())
+}
+
+/// The first run: no cache file and no DAT. Both panes that would hold DATs say where to get
+/// them, and there is no banner.
+fn first_run(dir: &std::path::Path) -> Result<(), String> {
+    let mut s = Settings::default();
+    s.dat_root = dir.join("NoDats").to_string_lossy().into_owned();
+    s.cache_file = dir.join("first.Cache").to_string_lossy().into_owned();
+    s.dir_mappings[0].dir_path = dir.join("NoRoms").to_string_lossy().into_owned();
+    fs::create_dir_all(dir.join("NoDats")).unwrap();
+    let cfg = dir.join("first.xml");
+    engine::write_settings(&cfg, &s).map_err(|e| e.to_string())?;
+    let (out, err) = run_window(&cfg, dir, &[])?;
+    layout(&out, &err)?;
+    if !(flag(&out, "tree_hint=")? && flag(&out, "games_hint=")?) {
+        return Err(format!(
+            "the first run has no pointer to the DATs:\n{out}\n{err}"
+        ));
+    }
+    println!("smoke: first run, both panes point at Update DATs / Settings");
     Ok(())
 }
