@@ -185,6 +185,7 @@ struct Widgets {
     info_title: gtk4::Label,
     info_fields: gtk4::Label,
     info_counts: gtk4::Label,
+    info: gtk4::Box,
     filter_row: gtk4::Box,
     banner: gtk4::Revealer,
     banner_text: gtk4::Label,
@@ -476,6 +477,16 @@ impl App {
             }
             None => self.w.banner.set_reveal_child(false),
         }
+        self.sync_info_room();
+    }
+
+    /// The info block keeps the room of a DAT's title, fields and counts so that the filter row
+    /// does not move between selections. With nothing loaded and the banner saying why, there
+    /// is no selection to show and the block goes, its room to the lists: at the minimum window
+    /// a long refusal leaves them a row or two otherwise.
+    fn sync_info_room(&self) {
+        let nothing = self.db.is_none() && self.w.banner.reveals_child();
+        self.w.info.set_visible(!nothing);
     }
 
     /// The buttons that start an operation work only with a database in hand and nothing running.
@@ -491,6 +502,7 @@ impl App {
         for b in [&self.w.find_fixes, &self.w.fix] {
             b.set_sensitive(ready);
         }
+        self.sync_info_room();
     }
 
     fn find_row(&self, path: &[String]) -> Option<Arc<DirNode>> {
@@ -522,6 +534,9 @@ impl App {
             self.show_banner(Some(&e.to_string()));
             self.status("Not loaded: protected path");
             self.update_buttons();
+            if self.args.smoke {
+                self.smoke_report();
+            }
             return;
         }
         self.status("Loading the cache...");
@@ -807,22 +822,28 @@ impl App {
         );
         let w = self.w.window.clone();
         let filter_row = self.w.filter_row.clone();
-        // One frame first, so that the lists have been drawn at least once.
+        let games = self.w.games.widget().clone();
+        // One frame first, so that the lists have been drawn at least once, and then the banner's
+        // slide-in, which is over well within the time given.
         once_after_paint(&self.w.window, move || {
-            // Where the filter row ends against where the window does: a tick box or the search
-            // field past the window's edge is clipped with no way to reach it.
-            let right = filter_row
-                .compute_bounds(&w)
-                .map_or(-1.0, |b| b.x() + b.width());
-            println!(
-                "smoke-layout: window_width={} filter_row_right={right:.0}",
-                w.width()
-            );
-            if let Some(app) = w.application() {
-                app.quit();
-            } else {
-                w.close();
-            }
+            let (w, filter_row, games) = (w.clone(), filter_row.clone(), games.clone());
+            glib::timeout_add_local_once(Duration::from_millis(700), move || {
+                // Where the filter row ends against where the window does: a tick box or the
+                // search field past the window's edge is clipped with no way to reach it.
+                let right = filter_row
+                    .compute_bounds(&w)
+                    .map_or(-1.0, |b| b.x() + b.width());
+                println!(
+                    "smoke-layout: window_width={} filter_row_right={right:.0} games_height={}",
+                    w.width(),
+                    games.height()
+                );
+                if let Some(app) = w.application() {
+                    app.quit();
+                } else {
+                    w.close();
+                }
+            });
         });
     }
 
@@ -1241,6 +1262,7 @@ impl SimpleComponent for App {
                 info_title,
                 info_fields,
                 info_counts,
+                info: info.clone(),
                 filter_row: filter_box.clone(),
                 banner,
                 banner_text,
