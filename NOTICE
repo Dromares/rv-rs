@@ -20,3 +20,15 @@ carried over from the original, it remains subject to the original license
 and its copyright notices. Those notices belong to their respective authors.
 
 This product is licensed under the Apache License, Version 2.0. See LICENSE.
+
+The rv-gtk AppImage (rv-gtk-x86_64.AppImage) bundles shared libraries of the system it was built
+on (Ubuntu), copied unchanged: GTK 4, GLib/GObject/GIO, Pango, Cairo, gdk-pixbuf, HarfBuzz,
+Graphene and their dependencies. Several of them are licensed under the GNU Lesser General Public
+License (GTK 4, GLib, GObject, GIO, Pango, Cairo, gdk-pixbuf, HarfBuzz, librsvg, Graphene among
+them) and the Adwaita icon theme under LGPL-3.0 or CC-BY-SA-3.0. Their copyright files and the
+licence texts they refer to are inside the AppImage under usr/share/doc/<package>/ and
+usr/share/doc/common-licenses/; usr/share/doc/rv-rs/bundled-packages.txt lists the packages.
+The libraries are loaded as shared libraries and can be replaced by the user: extract the
+AppImage with `./rv-gtk-x86_64.AppImage --appimage-extract`, change files in squashfs-root/usr/lib,
+and run squashfs-root/AppRun. The source of each is available from the Ubuntu archive for the
+package named there.
