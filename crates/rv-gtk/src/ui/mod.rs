@@ -187,6 +187,8 @@ struct Widgets {
     info_counts: gtk4::Label,
     banner: gtk4::Revealer,
     banner_text: gtk4::Label,
+    /// On the banner when the guard refused: opens Settings, where the Safety switch is.
+    banner_settings: gtk4::Button,
     status: gtk4::Label,
     progress: Progress,
     update: gtk4::Button,
@@ -464,6 +466,11 @@ impl App {
         match text {
             Some(t) => {
                 self.w.banner_text.set_text(t);
+                // Every refusal of the guard names the switch (see `EngineError`), whichever
+                // path it took to get here, so that is what the button is offered for.
+                self.w
+                    .banner_settings
+                    .set_visible(t.contains(&engine::safety_switch_location()));
                 self.w.banner.set_reveal_child(true);
             }
             None => self.w.banner.set_reveal_child(false),
@@ -511,9 +518,7 @@ impl App {
         // The guard comes before any file is opened.
         if let Err(e) = engine::check_paths(&self.settings, self.prefs.allow_protected_paths) {
             self.db = None;
-            self.show_banner(Some(&format!(
-                "{e}\nChange the paths in Settings. (The guard can be lifted there on purpose.)"
-            )));
+            self.show_banner(Some(&e.to_string()));
             self.status("Not loaded: protected path");
             self.update_buttons();
             return;
@@ -982,10 +987,16 @@ impl SimpleComponent for App {
         banner_text.set_wrap(true);
         banner_text.set_xalign(0.0);
         banner_text.set_selectable(true);
-        banner_text.add_css_class("rv-banner");
         banner_text.set_hexpand(true);
+        let banner_settings = gtk4::Button::with_label("Open Settings");
+        banner_settings.set_valign(gtk4::Align::Center);
+        banner_settings.set_visible(false);
+        let banner_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 12);
+        banner_row.add_css_class("rv-banner");
+        banner_row.append(&banner_text);
+        banner_row.append(&banner_settings);
         let banner = gtk4::Revealer::new();
-        banner.set_child(Some(&banner_text));
+        banner.set_child(Some(&banner_row));
 
         // The tree and the lists.
         let tree = TreeView::new({
@@ -1118,8 +1129,15 @@ impl SimpleComponent for App {
                 move || Some(first_filter.clone())
             }),
             Box::new({
-                let settings_btn = settings_btn.clone();
-                move || Some(settings_btn.clone().upcast())
+                let (settings_btn, banner_settings) =
+                    (settings_btn.clone(), banner_settings.clone());
+                move || {
+                    Some(if banner_settings.is_mapped() {
+                        banner_settings.clone().upcast()
+                    } else {
+                        settings_btn.clone().upcast()
+                    })
+                }
             }),
         );
         tab_hops(
@@ -1162,6 +1180,7 @@ impl SimpleComponent for App {
         fix.connect_clicked(input(|| Msg::FixFiles));
         scan.connect_clicked(input(|| Msg::ScanSelected));
         settings_btn.connect_clicked(input(|| Msg::OpenSettings(0)));
+        banner_settings.connect_clicked(input(|| Msg::OpenSettings(0)));
         key_btn.connect_clicked(input(|| Msg::OpenKey));
         scan_level.connect_selected_notify({
             let s = sender.input_sender().clone();
@@ -1211,6 +1230,7 @@ impl SimpleComponent for App {
                 info_counts,
                 banner,
                 banner_text,
+                banner_settings: banner_settings.clone(),
                 status,
                 progress,
                 update,
@@ -1506,12 +1526,14 @@ impl SimpleComponent for App {
                 Err(e) => self.show_banner(Some(&e)),
             },
             Msg::SettingsApplied(Opaque((settings, prefs))) => {
-                match engine::check_paths(&settings, prefs.allow_protected_paths)
-                    .and_then(|_| engine::write_settings(&self.config_path, &settings))
-                {
+                match engine::commit_settings(
+                    &self.config_path,
+                    &self.args.prefs,
+                    &settings,
+                    &prefs,
+                ) {
                     Ok(()) => {
                         self.prefs = prefs;
-                        self.save_prefs();
                         self.reload(&sender);
                     }
                     Err(e) => self.show_banner(Some(&e.to_string())),
