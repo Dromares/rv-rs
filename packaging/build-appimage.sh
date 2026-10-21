@@ -15,7 +15,7 @@ set -euo pipefail
 
 for v in RV_GTK OUT LINUXDEPLOY GTK_PLUGIN APPIMAGETOOL RUNTIME; do
   [ -n "${!v:-}" ] || { echo "build-appimage: $v is not set" >&2; exit 2; }
-  [ -f "${!v}" ] || { echo "build-appimage: $v=${!v} is not a file" >&2; exit 2; }
+  [ "$v" = OUT ] || [ -f "${!v}" ] || { echo "build-appimage: $v=${!v} is not a file" >&2; exit 2; }
 done
 
 here=$(cd "$(dirname "$0")/.." && pwd)
