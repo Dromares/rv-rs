@@ -98,14 +98,21 @@ pub fn protected_list(violations: &[guard::Violation]) -> String {
     text
 }
 
-/// What the settings dialog's OK does with its result: refuse a protected path unless the guard
-/// is lifted, write the settings file, then the preferences. A refusal writes nothing.
+/// What the settings dialog's OK does with its result: refuse a settings file that cannot be
+/// read (the dialog opened on defaults, so writing would replace the user's settings with them),
+/// refuse a protected path unless the guard is lifted, write the settings file, then the
+/// preferences. A refusal writes nothing.
 pub fn commit_settings(
     config_path: &Path,
     prefs_path: &Path,
     settings: &Settings,
     prefs: &Prefs,
 ) -> Result<(), EngineError> {
+    if let Err(EngineError::Settings(e)) = read_settings(config_path) {
+        return Err(EngineError::Settings(format!(
+            "{e}\nThe settings file was left as it is. Fix or remove it, then apply the settings again."
+        )));
+    }
     check_paths(settings, prefs.allow_protected_paths)?;
     write_settings(config_path, settings)?;
     if let Err(e) = prefs.save(prefs_path) {

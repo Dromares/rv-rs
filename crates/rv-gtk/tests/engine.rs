@@ -264,6 +264,47 @@ fn settings_are_written_back_with_what_the_file_already_had() {
     assert!(engine::read_settings(&file).is_err());
 }
 
+#[test]
+fn settings_that_failed_to_load_are_not_overwritten_with_defaults() {
+    use std::os::unix::fs::PermissionsExt;
+    let t = Tmp::new("unreadable");
+    let cfg = t.path("RomVault3cfg.xml");
+    let prefs_file = t.path("rv-gtk.conf");
+    let prefs = rv_gtk::prefs::Prefs::default();
+    // What the dialog hands back after opening on defaults because the file could not be read.
+    let defaults = t.settings();
+
+    // Truncated XML: the user's DirMappings are in the file and must stay there.
+    let truncated = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<Settings>\n  <DatRoot>Mine</DatRoot>\n  <DirMappings>\n    <DirMapping>\n      <DirKey>ToSort</DirKey>\n      <DirPath>Tos";
+    fs::write(&cfg, truncated).unwrap();
+    let refused = engine::commit_settings(&cfg, &prefs_file, &defaults, &prefs);
+    assert!(
+        matches!(refused, Err(EngineError::Settings(_))),
+        "{refused:?}"
+    );
+    assert_eq!(fs::read_to_string(&cfg).unwrap(), truncated);
+    assert!(!prefs_file.exists(), "a refusal writes nothing");
+
+    // Unreadable (chmod 000): the same, unless this runs as a user who can read it anyway.
+    fs::write(&cfg, "<Settings><DatRoot>Mine</DatRoot></Settings>").unwrap();
+    fs::set_permissions(&cfg, fs::Permissions::from_mode(0o000)).unwrap();
+    if fs::read_to_string(&cfg).is_err() {
+        let refused = engine::commit_settings(&cfg, &prefs_file, &defaults, &prefs);
+        assert!(
+            matches!(refused, Err(EngineError::Settings(_))),
+            "{refused:?}"
+        );
+        fs::set_permissions(&cfg, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(fs::read_to_string(&cfg).unwrap().contains("Mine"));
+    }
+    fs::set_permissions(&cfg, fs::Permissions::from_mode(0o644)).unwrap();
+
+    // A file that is not there yet is the first run: that one is written.
+    let fresh = t.path("fresh.xml");
+    engine::commit_settings(&fresh, &prefs_file, &defaults, &prefs).unwrap();
+    assert!(fresh.exists());
+}
+
 // ---- the online tasks, against a mock of the service on 127.0.0.1 ----------------------------
 
 mod online {
