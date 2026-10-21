@@ -8,12 +8,15 @@
 //! * [`install::install`] downloads the file for this system and `SHA256SUMS`, and refuses to
 //!   install anything the sums do not vouch for ([`install`] has the order of the steps and the
 //!   backup).
+//! * [`appimage`]: `rv-gtk` run from an AppImage is updated by replacing the AppImage file with
+//!   the release's AppImage, never with the bare binary.
 //! * Nothing here asks the user anything and nothing installs by itself: the callers (`rv update
 //!   install`, the `rv-gtk` menu) show what would happen and ask first.
 //!
 //! The address of the API is a setting ([`config::UpdateConfig::api_base`]); the tests point it
 //! at a mock on `127.0.0.1` ([`mock`], feature `mock`).
 
+pub mod appimage;
 pub mod config;
 mod error;
 mod http;

@@ -335,13 +335,29 @@ impl App {
     /// The question before anything is downloaded. Cancel is the default button: Enter or
     /// Escape never installs.
     fn ask_to_install(&self, up: rv_update::Update, sender: &ComponentSender<App>) {
-        let target = std::env::current_exe().unwrap_or_default();
-        let (message, detail) = engine::update_question(&up, &target);
-        self.status(&message);
+        let target = match engine::update_target() {
+            Ok(t) => t,
+            Err(e) => {
+                self.show_banner(Some(&e));
+                return;
+            }
+        };
+        let q = engine::update_question_for(&up, &target);
+        self.status(&q.message);
+        if !q.can_install {
+            gtk4::AlertDialog::builder()
+                .modal(true)
+                .message(q.message)
+                .detail(q.detail)
+                .buttons(["OK"])
+                .build()
+                .show(Some(&self.w.window));
+            return;
+        }
         let dialog = gtk4::AlertDialog::builder()
             .modal(true)
-            .message(message)
-            .detail(detail)
+            .message(q.message)
+            .detail(q.detail)
             .buttons(["Cancel", "Install"])
             .cancel_button(0)
             .default_button(0)
@@ -1428,10 +1444,10 @@ impl SimpleComponent for App {
                 if self.updating {
                     return;
                 }
-                let target = match std::env::current_exe() {
+                let target = match engine::update_target() {
                     Ok(t) => t,
                     Err(e) => {
-                        self.show_banner(Some(&format!("Cannot tell where rv-gtk is: {e}")));
+                        self.show_banner(Some(&e));
                         return;
                     }
                 };
@@ -1439,7 +1455,7 @@ impl SimpleComponent for App {
                 self.status(&format!("Downloading version {}...", up.version));
                 let tx = sender.input_sender().clone();
                 worker(move || {
-                    let result = engine::install_update(&up, &target);
+                    let result = engine::install_update_for(&up, &target);
                     let _ = tx.send(Msg::UpdateInstalled(Opaque(result)));
                 });
             }
