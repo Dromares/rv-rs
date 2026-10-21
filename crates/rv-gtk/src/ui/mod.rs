@@ -141,6 +141,8 @@ pub enum Msg {
     /// The settings dialog, on the page with this number.
     OpenSettings(u32),
     OpenKey,
+    /// The banner's Dismiss button.
+    DismissBanner,
     /// The Help menu's "Check for updates", or the check at start (`startup`: say nothing when
     /// there is nothing to report).
     CheckUpdates {
@@ -191,6 +193,9 @@ struct Widgets {
     banner_text: gtk4::Label,
     /// On the banner when the guard refused: opens Settings, where the Safety switch is.
     banner_settings: gtk4::Button,
+    /// First run: the panes that would hold DATs say where to get them.
+    tree_hint: gtk4::Label,
+    games_hint: gtk4::Label,
     status: gtk4::Label,
     progress: Progress,
     update: gtk4::Button,
@@ -489,6 +494,14 @@ impl App {
         self.w.info.set_visible(!nothing);
     }
 
+    /// First run: a database that holds no DAT gets a pointer in the tree and the games pane,
+    /// where the user looks for them, not only in the status line.
+    fn sync_empty_hints(&self) {
+        let empty = self.db.is_some() && !model::has_dats(&self.tree_rows);
+        self.w.tree_hint.set_visible(empty);
+        self.w.games_hint.set_visible(empty);
+    }
+
     /// The buttons that start an operation work only with a database in hand and nothing running.
     fn update_buttons(&self) {
         let ready = self.db.is_some() && !self.busy();
@@ -503,6 +516,7 @@ impl App {
             b.set_sensitive(ready);
         }
         self.sync_info_room();
+        self.sync_empty_hints();
     }
 
     fn find_row(&self, path: &[String]) -> Option<Arc<DirNode>> {
@@ -677,6 +691,7 @@ impl App {
         self.tree_rows = rows;
         let keep = self.selected.clone();
         self.w.tree.set_rows(&self.tree_rows, keep.as_deref());
+        self.sync_empty_hints();
         if keep.as_ref().is_some_and(|p| self.find_row(p).is_none()) {
             self.selected = None;
         }
@@ -908,7 +923,7 @@ impl SimpleComponent for App {
         root.set_default_size(prefs.width, prefs.height);
         // Below this the filter row and the lists are clipped with no way to reach them.
         root.set_size_request(MIN_WINDOW.0, MIN_WINDOW.1);
-        install_css();
+        install_css(&root);
 
         // The toolbar.
         let button = |label: &str, tip: &str| {
@@ -1025,8 +1040,12 @@ impl SimpleComponent for App {
         banner_settings.set_visible(false);
         let banner_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 12);
         banner_row.add_css_class("rv-banner");
+        let banner_dismiss = gtk4::Button::with_label("Dismiss");
+        banner_dismiss.set_valign(gtk4::Align::Center);
+        banner_dismiss.set_tooltip_text(Some("Hide this message"));
         banner_row.append(&banner_text);
         banner_row.append(&banner_settings);
+        banner_row.append(&banner_dismiss);
         let banner = gtk4::Revealer::new();
         banner.set_child(Some(&banner_row));
 
@@ -1114,10 +1133,19 @@ impl SimpleComponent for App {
         info.append(&info_fields);
         info.append(&info_counts);
 
+        let (tree_pane, tree_hint) = with_hint(
+            tree.widget(),
+            "No DATs yet.\nPress Update DATs to read the DATs in your DatRoot folder, \
+             or fetch them from DatVault (Online menu).",
+        );
+        let (games_pane, games_hint) = with_hint(
+            games.widget(),
+            "Nothing to list until there are DATs.\nSettings sets the DatRoot and ROM folders.",
+        );
         let upper = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
         upper.append(&info);
         upper.append(&filter_box);
-        upper.append(games.widget());
+        upper.append(&games_pane);
         let right = gtk4::Paned::new(gtk4::Orientation::Vertical);
         right.set_start_child(Some(&upper));
         right.set_end_child(Some(roms.widget()));
@@ -1127,7 +1155,7 @@ impl SimpleComponent for App {
         right.set_shrink_start_child(false);
         right.set_shrink_end_child(false);
         let main = gtk4::Paned::new(gtk4::Orientation::Horizontal);
-        main.set_start_child(Some(tree.widget()));
+        main.set_start_child(Some(&tree_pane));
         main.set_end_child(Some(&right));
         main.set_position(prefs.tree_width);
         main.set_resize_start_child(false);
@@ -1163,11 +1191,11 @@ impl SimpleComponent for App {
                 move || Some(first_filter.clone())
             }),
             Box::new({
-                let (settings_btn, banner_settings) =
-                    (settings_btn.clone(), banner_settings.clone());
+                let (settings_btn, banner_dismiss) = (settings_btn.clone(), banner_dismiss.clone());
+                // Back from the tree: the banner's last button, when there is one.
                 move || {
-                    Some(if banner_settings.is_mapped() {
-                        banner_settings.clone().upcast()
+                    Some(if banner_dismiss.is_mapped() {
+                        banner_dismiss.clone().upcast()
                     } else {
                         settings_btn.clone().upcast()
                     })
@@ -1215,6 +1243,7 @@ impl SimpleComponent for App {
         scan.connect_clicked(input(|| Msg::ScanSelected));
         settings_btn.connect_clicked(input(|| Msg::OpenSettings(0)));
         banner_settings.connect_clicked(input(|| Msg::OpenSettings(0)));
+        banner_dismiss.connect_clicked(input(|| Msg::DismissBanner));
         key_btn.connect_clicked(input(|| Msg::OpenKey));
         scan_level.connect_selected_notify({
             let s = sender.input_sender().clone();
@@ -1267,6 +1296,8 @@ impl SimpleComponent for App {
                 banner,
                 banner_text,
                 banner_settings: banner_settings.clone(),
+                tree_hint,
+                games_hint,
                 status,
                 progress,
                 update,
@@ -1443,6 +1474,11 @@ impl SimpleComponent for App {
                 self.refresh_games(keep);
             }
             Msg::ScanLevelChanged(level) => self.prefs.scan_level = level,
+            Msg::DismissBanner => {
+                self.show_banner(None);
+                // The button that had the focus is going away with the banner.
+                self.w.settings.grab_focus();
+            }
             Msg::OpenSettings(page) => {
                 if self.busy() {
                     return;
@@ -1699,6 +1735,26 @@ fn tab_hops(
     list.add_controller(keys);
 }
 
+/// `pane` with a pointer centred over it, hidden until the window says the pane is empty for want
+/// of DATs (`App::sync_empty_hints`). The label takes no clicks and no focus: the pane under it
+/// stays the one that works.
+fn with_hint(pane: &gtk4::ScrolledWindow, text: &str) -> (gtk4::Overlay, gtk4::Label) {
+    let hint = gtk4::Label::new(Some(text));
+    hint.add_css_class("dim-label");
+    hint.set_wrap(true);
+    hint.set_justify(gtk4::Justification::Center);
+    hint.set_halign(gtk4::Align::Center);
+    hint.set_valign(gtk4::Align::Center);
+    hint.set_margin_start(24);
+    hint.set_margin_end(24);
+    hint.set_can_target(false);
+    hint.set_visible(false);
+    let overlay = gtk4::Overlay::new();
+    overlay.set_child(Some(pane));
+    overlay.add_overlay(&hint);
+    (overlay, hint)
+}
+
 /// Lines of DAT fields (description, version, author, date) the info panel always has room for.
 const INFO_FIELD_LINES: i32 = 4;
 
@@ -1709,8 +1765,12 @@ const MIN_WINDOW: (i32, i32) = (1000, 600);
 /// light and dark window backgrounds.
 const APP_CSS: &str = "\
     /* The theme's focus ring is 2.4:1 on light. This blue is 3.5:1 on the light window and \
-       3.3:1 on the dark one (a darker blue fails 3:1 on dark). */\n\
-    :focus-visible { outline-color: #3584e4; outline-width: 2px; }\n\
+       3.3:1 on the dark one (a darker blue fails 3:1 on dark). A text field keeps its focus on \
+       the inner text, so it is not :focus-visible: the theme rings it at half this blue \
+       (1.7:1 on a light field, 1.47:1 on a dark one). */\n\
+    :focus-visible, spinbutton.vertical > text:focus-within, \
+    spinbutton:focus-within:not(.vertical), entry:focus-within \
+    { outline-color: #3584e4; outline-width: 2px; }\n\
     /* Adwaita dims at 0.55, which fails 4.5:1 for the counts, info text, status line and headers. */\n\
     .dim-label { opacity: 0.75; }\n\
     /* The theme's header text is a fixed grey (#979a9b light, #90908f dark). */\n\
@@ -1722,10 +1782,35 @@ const APP_CSS: &str = "\
                  padding: 8px; }\n\
     .rv-key-chip { border: 1px solid rgba(0,0,0,0.35); border-radius: 3px; padding: 2px 8px; }\n";
 
-fn install_css() {
+/// Light scheme only. The theme's selection and OK button are white on #3584e4, 3.77:1, short of
+/// the 4.5:1 for text. #1c71d8 gives 4.77:1 and still stands out from the window (4.38:1). The
+/// dark scheme's selection is darker already (white on #2b62a6 and the like) and is left alone.
+/// The button's hover and pressed looks are the theme's, which are dark enough.
+const LIGHT_CSS: &str = "\
+    .view:selected:focus, .view:selected, textview > text:selected:focus, \
+    textview > text:selected, iconview:selected:focus, iconview:selected, \
+    flowbox > flowboxchild:selected, gridview > child:selected, modelbutton.flat:selected, \
+    columnview.view:selected:focus, columnview.view:selected, treeview.view:selected:focus, \
+    treeview.view:selected, row:selected { background-color: #1c71d8; }\n\
+    row.activatable:selected.has-open-popup, row.activatable:selected:hover \
+    { background-color: #1a68c8; }\n\
+    button.suggested-action:not(:hover):not(:active):not(:checked):not(:disabled) \
+    { background-image: linear-gradient(to top, #1a68c8 2px, #1c71d8); }\n";
+
+/// Whether the theme in use draws light text, that is, is a dark scheme.
+fn dark_scheme(window: &gtk4::Window) -> bool {
+    let c = window.color();
+    let lin = |v: f32| f64::from(v).powf(2.2);
+    0.2126 * lin(c.red()) + 0.7152 * lin(c.green()) + 0.0722 * lin(c.blue()) > 0.18
+}
+
+fn install_css(window: &gtk4::Window) {
     let provider = gtk4::CssProvider::new();
     let mut css = crate::colours::css();
     css.push_str(APP_CSS);
+    if !dark_scheme(window) {
+        css.push_str(LIGHT_CSS);
+    }
     provider.load_from_string(&css);
     if let Some(display) = gdk::Display::default() {
         gtk4::style_context_add_provider_for_display(
