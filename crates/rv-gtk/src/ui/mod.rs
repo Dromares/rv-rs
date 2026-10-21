@@ -185,6 +185,7 @@ struct Widgets {
     info_title: gtk4::Label,
     info_fields: gtk4::Label,
     info_counts: gtk4::Label,
+    filter_row: gtk4::Box,
     banner: gtk4::Revealer,
     banner_text: gtk4::Label,
     /// On the banner when the guard refused: opens Settings, where the Safety switch is.
@@ -805,8 +806,18 @@ impl App {
             self.args.started.elapsed().as_millis()
         );
         let w = self.w.window.clone();
+        let filter_row = self.w.filter_row.clone();
         // One frame first, so that the lists have been drawn at least once.
         once_after_paint(&self.w.window, move || {
+            // Where the filter row ends against where the window does: a tick box or the search
+            // field past the window's edge is clipped with no way to reach it.
+            let right = filter_row
+                .compute_bounds(&w)
+                .map_or(-1.0, |b| b.x() + b.width());
+            println!(
+                "smoke-layout: window_width={} filter_row_right={right:.0}",
+                w.width()
+            );
             if let Some(app) = w.application() {
                 app.quit();
             } else {
@@ -1230,6 +1241,7 @@ impl SimpleComponent for App {
                 info_title,
                 info_fields,
                 info_counts,
+                filter_row: filter_box.clone(),
                 banner,
                 banner_text,
                 banner_settings: banner_settings.clone(),

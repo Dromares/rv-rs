@@ -83,6 +83,9 @@ fn run(dir: &std::path::Path) -> Result<(), String> {
     )
     .map_err(|e| e.to_string())?;
 
+    // The smallest window the app allows, which is where the filter row has the least room.
+    write("prefs.conf", b"width=1000\nheight=600\n");
+
     let mut child = Command::new(env!("CARGO_BIN_EXE_rv-gtk"))
         .args(["--smoke", "--config"])
         .arg(&cfg)
@@ -139,6 +142,25 @@ fn run(dir: &std::path::Path) -> Result<(), String> {
         if !line.contains(needle) {
             return Err(format!("{needle} is not in: {line}\n{err}"));
         }
+    }
+    // At the minimum window size (the window is 10 px narrower than the request, the frame)
+    // the whole filter row is inside the window.
+    let layout = out
+        .lines()
+        .find(|l| l.starts_with("smoke-layout:"))
+        .ok_or_else(|| format!("no layout report in the output:\n{out}\n{err}"))?;
+    let number = |key: &str| -> Result<i32, String> {
+        layout
+            .split_whitespace()
+            .find_map(|w| w.strip_prefix(key))
+            .and_then(|v| v.parse().ok())
+            .ok_or_else(|| format!("no {key} in: {layout}"))
+    };
+    let (width, right) = (number("window_width=")?, number("filter_row_right=")?);
+    if width > 1000 || right > width {
+        return Err(format!(
+            "the filter row is clipped at the minimum window ({right} px of {width}): {layout}"
+        ));
     }
     // The cache was not rewritten by a smoke run.
     if !err.contains("first frame with the tree") {
