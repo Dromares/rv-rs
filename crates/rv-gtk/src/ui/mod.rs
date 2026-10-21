@@ -193,6 +193,7 @@ struct Widgets {
     banner_text: gtk4::Label,
     /// On the banner when the guard refused: opens Settings, where the Safety switch is.
     banner_settings: gtk4::Button,
+    banner_dismiss: gtk4::Button,
     /// First run: the panes that would hold DATs say where to get them.
     tree_hint: gtk4::Label,
     games_hint: gtk4::Label,
@@ -841,20 +842,32 @@ impl App {
         let w = self.w.window.clone();
         let filter_row = self.w.filter_row.clone();
         let games = self.w.games.widget().clone();
+        let (tree_hint, games_hint) = (self.w.tree_hint.clone(), self.w.games_hint.clone());
+        let dismiss = self.w.banner_dismiss.clone();
         // One frame first, so that the lists have been drawn at least once, and then the banner's
         // slide-in, which is over well within the time given.
         once_after_paint(&self.w.window, move || {
             let (w, filter_row, games) = (w.clone(), filter_row.clone(), games.clone());
+            let (tree_hint, games_hint) = (tree_hint.clone(), games_hint.clone());
+            let dismiss = dismiss.clone();
             glib::timeout_add_local_once(Duration::from_millis(700), move || {
                 // Where the filter row ends against where the window does: a tick box or the
                 // search field past the window's edge is clipped with no way to reach it.
                 let right = filter_row
                     .compute_bounds(&w)
                     .map_or(-1.0, |b| b.x() + b.width());
+                // The banner's last button, which has to be reachable: -1 with no banner.
+                let dismiss_right = dismiss
+                    .compute_bounds(&w)
+                    .filter(|_| dismiss.is_mapped())
+                    .map_or(-1.0, |b| b.x() + b.width());
                 println!(
-                    "smoke-layout: window_width={} filter_row_right={right:.0} games_height={}",
+                    "smoke-layout: window_width={} filter_row_right={right:.0} games_height={} \
+                     dismiss_right={dismiss_right:.0} tree_hint={} games_hint={}",
                     w.width(),
-                    games.height()
+                    games.height(),
+                    tree_hint.is_mapped(),
+                    games_hint.is_mapped()
                 );
                 if let Some(app) = w.application() {
                     app.quit();
@@ -1299,6 +1312,7 @@ impl SimpleComponent for App {
                 banner,
                 banner_text,
                 banner_settings: banner_settings.clone(),
+                banner_dismiss: banner_dismiss.clone(),
                 tree_hint,
                 games_hint,
                 status,

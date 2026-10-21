@@ -956,7 +956,7 @@ fn a_settings_file_that_cannot_be_used_is_explained_in_words() {
     fs::write(&cfg, "").unwrap();
     let empty = said(&cfg);
     assert!(
-        empty.ends_with("the file is empty or has no settings in it."),
+        empty.ends_with("it is empty or cut short, so there are no settings to read."),
         "{empty}"
     );
     assert!(empty.starts_with("The settings file "), "{empty}");

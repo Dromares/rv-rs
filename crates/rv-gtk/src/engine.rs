@@ -149,7 +149,9 @@ pub fn plain_os_errors(text: &str) -> String {
 fn unusable_settings_file(path: &Path, detail: &str) -> String {
     let detail = detail.strip_prefix("settings: ").unwrap_or(detail);
     let why = match detail.strip_prefix("XML: ") {
-        Some("no root element") => "the file is empty or has no settings in it".to_owned(),
+        Some("no root element") => {
+            "it is empty or cut short, so there are no settings to read".to_owned()
+        }
         Some(xml) => format!("it is not well-formed XML ({xml})"),
         None => detail.to_owned(),
     };
