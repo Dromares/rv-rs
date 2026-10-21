@@ -1101,6 +1101,8 @@ impl SimpleComponent for App {
         main.set_resize_start_child(false);
         main.set_vexpand(true);
         main.set_shrink_start_child(false);
+        // The saved tree width gives way instead of clipping the filter row.
+        main.set_shrink_end_child(false);
 
         // The progress panel and the status line.
         let progress = build_progress(&sender);
