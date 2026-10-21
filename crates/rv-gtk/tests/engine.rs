@@ -836,3 +836,70 @@ fn the_question_states_the_counts_and_a_stopped_fix_is_a_problem() {
     );
     assert!(stopped.summary().contains("(stopped)"));
 }
+
+#[test]
+fn a_refusal_names_the_safety_switch() {
+    let t = Tmp::new("hint");
+    let mut s = t.settings();
+    s.dir_mappings = vec![rv_core::DirMapping {
+        dir_key: "RomVault".to_owned(),
+        dir_path: "/mnt/HHD16TB/Roms/RomVault/RomRoot".to_owned(),
+    }];
+    let e = engine::check_paths(&s, false).unwrap_err();
+    let text = e.to_string();
+    let prefixes = rv_core::guard::PROTECTED_PREFIXES.join(", ");
+    assert!(
+        text.contains(&format!(
+            "Settings \u{2192} General \u{2192} Safety \u{2192} \"Allow paths under {prefixes}\""
+        )),
+        "{text}"
+    );
+    assert!(
+        text.contains("DirMapping RomVault (/mnt/HHD16TB/Roms/RomVault/RomRoot)"),
+        "{text}"
+    );
+    assert!(
+        !text.contains("lifted there"),
+        "the old, vague wording is gone: {text}"
+    );
+    // Every call that can be refused says it the same way.
+    let mut db = rv_core::Database::default_db();
+    let refused = engine::save_cache(&s, &mut db, false)
+        .unwrap_err()
+        .to_string();
+    assert!(
+        refused.contains(&engine::safety_switch_location()),
+        "{refused}"
+    );
+    // With the switch on there is nothing to say.
+    assert!(engine::check_paths(&s, true).is_ok());
+}
+
+#[test]
+fn allow_and_save_saves_the_prefs_and_cancel_does_not() {
+    let t = Tmp::new("allow");
+    let mut s = t.settings();
+    s.dat_root = "/mnt/HHD16TB/DatRoot".to_owned();
+    let cfg = t.path("RomVault3cfg.xml");
+    let prefs_file = t.path("rv-gtk.conf");
+
+    // Cancel: nothing is committed, and a fresh start has the guard on.
+    assert!(!rv_gtk::prefs::Prefs::default().allow_protected_paths);
+    assert!(!cfg.exists() && !prefs_file.exists());
+
+    // OK with the switch off: refused, and neither file is written.
+    let off = rv_gtk::prefs::Prefs::default();
+    let refused = engine::commit_settings(&cfg, &prefs_file, &s, &off);
+    assert!(
+        matches!(refused, Err(EngineError::Protected(_))),
+        "{refused:?}"
+    );
+    assert!(!cfg.exists() && !prefs_file.exists());
+
+    // Allow and save: the switch is ticked, the settings and the prefs are written.
+    let mut on = off.clone();
+    on.allow_protected_paths = true;
+    engine::commit_settings(&cfg, &prefs_file, &s, &on).unwrap();
+    assert!(cfg.exists());
+    assert!(rv_gtk::prefs::Prefs::load(&prefs_file).allow_protected_paths);
+}

@@ -11,7 +11,7 @@ use std::rc::Rc;
 
 use gtk4::glib::{self, clone};
 use gtk4::prelude::*;
-use rv_core::guard::PROTECTED_PREFIXES;
+use rv_core::guard::Violation;
 use rv_core::{
     DatRule, DirMapping, FileType, FilterType, FixLevel, HeaderType, MergeType, RemoveSubType,
     ScanLevel, Settings, ZipStructure,
@@ -145,6 +145,11 @@ fn path_row(
     row.append(&entry);
     row.append(&browse);
     row
+}
+
+/// The entry of a [`path_row`].
+fn row_entry(row: &gtk4::Box) -> Option<gtk4::Entry> {
+    row.first_child()?.downcast().ok()
 }
 
 fn text_box(initial: &[String], on_change: impl Fn(Vec<String>) + 'static) -> gtk4::ScrolledWindow {
@@ -625,7 +630,15 @@ fn set_mapping_keep(settings: &mut Settings, key: &str, path: &str) {
 
 // ---- the dialog ------------------------------------------------------------------------------
 
-fn general_page(window: &gtk4::Window, s: &Shared, p: &Rc<RefCell<Prefs>>) -> gtk4::Grid {
+/// The General page, with the parts the refusal needs to reach: the Safety switch and the entry
+/// of each path the guard looks at (named as [`Violation::setting`] names them).
+struct General {
+    grid: gtk4::Grid,
+    guard: gtk4::CheckButton,
+    paths: Vec<(&'static str, gtk4::Entry)>,
+}
+
+fn general_page(window: &gtk4::Window, s: &Shared, p: &Rc<RefCell<Prefs>>) -> General {
     let g = grid();
     let st = s.borrow().clone();
     let mut row = 0;
@@ -633,50 +646,43 @@ fn general_page(window: &gtk4::Window, s: &Shared, p: &Rc<RefCell<Prefs>>) -> gt
         labelled(&g, row, text, &w);
         row += 1;
     };
-    put(
-        "DAT root",
-        path_row(window, "Choose the DAT root", &st.dat_root, true, {
+    let mut paths = Vec::new();
+    let dat_root = path_row(window, "Choose the DAT root", &st.dat_root, true, {
+        let s = s.clone();
+        move |v| s.borrow_mut().dat_root = v
+    });
+    paths.extend(row_entry(&dat_root).map(|e| ("DatRoot", e)));
+    put("DAT root", dat_root.upcast());
+    let rom_root = path_row(
+        window,
+        "Choose the ROM root",
+        &mapping_path(&st, "RomVault"),
+        true,
+        {
             let s = s.clone();
-            move |v| s.borrow_mut().dat_root = v
-        })
-        .upcast(),
+            move |v| set_mapping(&mut s.borrow_mut(), "RomVault", &v)
+        },
     );
-    put(
-        "ROM root (RomVault)",
-        path_row(
-            window,
-            "Choose the ROM root",
-            &mapping_path(&st, "RomVault"),
-            true,
-            {
-                let s = s.clone();
-                move |v| set_mapping(&mut s.borrow_mut(), "RomVault", &v)
-            },
-        )
-        .upcast(),
-    );
-    put(
-        "ToSort",
-        path_row(
-            window,
-            "Choose the ToSort directory",
-            &mapping_path(&st, "ToSort"),
-            true,
-            {
-                let s = s.clone();
-                move |v| set_mapping(&mut s.borrow_mut(), "ToSort", &v)
-            },
-        )
-        .upcast(),
-    );
-    put(
-        "Cache file",
-        path_row(window, "Choose the cache file", &st.cache_file, false, {
+    paths.extend(row_entry(&rom_root).map(|e| ("DirMapping RomVault", e)));
+    put("ROM root (RomVault)", rom_root.upcast());
+    let to_sort = path_row(
+        window,
+        "Choose the ToSort directory",
+        &mapping_path(&st, "ToSort"),
+        true,
+        {
             let s = s.clone();
-            move |v| s.borrow_mut().cache_file = v
-        })
-        .upcast(),
+            move |v| set_mapping(&mut s.borrow_mut(), "ToSort", &v)
+        },
     );
+    paths.extend(row_entry(&to_sort).map(|e| ("DirMapping ToSort", e)));
+    put("ToSort", to_sort.upcast());
+    let cache_file = path_row(window, "Choose the cache file", &st.cache_file, false, {
+        let s = s.clone();
+        move |v| s.borrow_mut().cache_file = v
+    });
+    paths.extend(row_entry(&cache_file).map(|e| ("CacheFile", e)));
+    put("Cache file", cache_file.upcast());
     put(
         "Fixing level",
         dropdown(FIX_LEVELS, st.fix_level, {
@@ -727,10 +733,7 @@ fn general_page(window: &gtk4::Window, s: &Shared, p: &Rc<RefCell<Prefs>>) -> gt
     });
     put("", mia.upcast());
 
-    let guard = gtk4::CheckButton::with_label(&format!(
-        "Allow paths under {}",
-        PROTECTED_PREFIXES.join(", ")
-    ));
+    let guard = gtk4::CheckButton::with_label(&engine::safety_switch_label());
     guard.set_active(p.borrow().allow_protected_paths);
     guard.connect_toggled({
         let p = p.clone();
@@ -739,8 +742,12 @@ fn general_page(window: &gtk4::Window, s: &Shared, p: &Rc<RefCell<Prefs>>) -> gt
     guard.set_tooltip_text(Some(
         "These directories are refused by default so that a copy of someone's settings cannot touch their real collection.",
     ));
-    put("Safety", guard.upcast());
-    g
+    put("Safety", guard.clone().upcast());
+    General {
+        grid: g,
+        guard,
+        paths,
+    }
 }
 
 type SharedOnline = Rc<RefCell<OnlineConfig>>;
@@ -941,10 +948,8 @@ pub fn show(
     let p = Rc::new(RefCell::new(prefs.clone()));
 
     let book = gtk4::Notebook::new();
-    book.append_page(
-        &general_page(&window, &s, &p),
-        Some(&gtk4::Label::new(Some("General"))),
-    );
+    let general = general_page(&window, &s, &p);
+    book.append_page(&general.grid, Some(&gtk4::Label::new(Some("General"))));
     book.append_page(
         &directories_page(&window, &s),
         Some(&gtk4::Label::new(Some("Directories"))),
@@ -991,6 +996,10 @@ pub fn show(
     error.set_wrap(true);
     error.set_selectable(true);
     error.add_css_class("error");
+    // Shown only with the guard's refusal: it ticks the Safety switch and applies.
+    let allow_save = gtk4::Button::with_label("Allow and save");
+    allow_save.set_halign(gtk4::Align::Start);
+    allow_save.set_visible(false);
     let ok = gtk4::Button::with_label("OK");
     ok.add_css_class("suggested-action");
     let cancel = gtk4::Button::with_label("Cancel");
@@ -1006,20 +1015,50 @@ pub fn show(
     page.set_margin_bottom(8);
     page.append(&book);
     page.append(&error);
+    page.append(&allow_save);
     page.append(&buttons);
     window.set_child(Some(&page));
 
-    cancel.connect_clicked(clone!(
+    let close = clone!(
         #[weak]
         window,
-        move |_| window.close()
+        move || window.close()
+    );
+    cancel.connect_clicked({
+        let close = close.clone();
+        move |_| close()
+    });
+    // Escape leaves like Cancel: nothing is applied, so the Safety switch stays as it was.
+    let keys = gtk4::EventControllerKey::new();
+    keys.connect_key_pressed(move |_, key, _, _| {
+        if key == gtk4::gdk::Key::Escape {
+            close();
+            glib::Propagation::Stop
+        } else {
+            glib::Propagation::Proceed
+        }
+    });
+    window.add_controller(keys);
+    general.guard.connect_toggled(clone!(
+        #[weak]
+        allow_save,
+        move |c| {
+            if c.is_active() {
+                allow_save.set_visible(false);
+            }
+        }
     ));
-    ok.connect_clicked(clone!(
+
+    let submit: Rc<dyn Fn()> = Rc::new(clone!(
         #[weak]
         window,
         #[weak]
         error,
-        move |_| {
+        #[weak]
+        allow_save,
+        #[weak]
+        book,
+        move || {
             let mut settings = s.borrow().clone();
             let prefs = p.borrow().clone();
             // A mapping that was emptied while typing is no mapping.
@@ -1027,30 +1066,98 @@ pub fn show(
                 .dir_mappings
                 .retain(|m| !m.dir_path.trim().is_empty());
             match validate(&mut settings, &prefs)
-                .and_then(|()| o.borrow().save(&online_path).map_err(|e| e.to_string()))
-                .and_then(|()| u.borrow().save(&update_path).map_err(|e| e.to_string()))
-            {
+                .and_then(|()| {
+                    o.borrow()
+                        .save(&online_path)
+                        .map_err(|e| Refusal::Other(e.to_string()))
+                })
+                .and_then(|()| {
+                    u.borrow()
+                        .save(&update_path)
+                        .map_err(|e| Refusal::Other(e.to_string()))
+                }) {
                 Ok(()) => {
                     apply(settings, prefs);
                     window.close();
                 }
-                Err(e) => error.set_text(&e),
+                Err(Refusal::Protected(violations)) => {
+                    error.set_text(&Refusal::Protected(violations.clone()).to_string());
+                    allow_save.set_visible(true);
+                    // The switch is on the General page, so show that page, with the focus on the
+                    // first path the guard objects to (not on the button).
+                    book.set_current_page(Some(0));
+                    let first = general
+                        .paths
+                        .iter()
+                        .find(|(setting, _)| violations.iter().any(|v| v.setting == *setting));
+                    match first {
+                        Some((_, entry)) => {
+                            entry.grab_focus_without_selecting();
+                        }
+                        None => {
+                            book.grab_focus();
+                        }
+                    }
+                }
+                Err(Refusal::Other(e)) => {
+                    error.set_text(&e);
+                    allow_save.set_visible(false);
+                }
             }
         }
     ));
+    ok.connect_clicked({
+        let submit = submit.clone();
+        move |_| submit()
+    });
+    let guard = general.guard.clone();
+    allow_save.connect_clicked(move |_| {
+        guard.set_active(true);
+        submit();
+    });
     window.present();
 }
 
+/// Why OK did not apply the dialog.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Refusal {
+    /// Something to correct: an ignore pattern that does not compile, an empty path, a file that
+    /// cannot be written.
+    Other(String),
+    /// The only failure is paths in a protected directory, and the Safety switch is off.
+    Protected(Vec<Violation>),
+}
+
+impl std::fmt::Display for Refusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Refusal::Other(text) => f.write_str(text),
+            Refusal::Protected(v) => write!(
+                f,
+                "{}\nTick \"{}\" under Safety on this page to use them on purpose.",
+                engine::protected_list(v),
+                engine::safety_switch_label()
+            ),
+        }
+    }
+}
+
 /// What OK checks: the ignore patterns compile and no path is in a protected directory.
-pub fn validate(settings: &mut Settings, prefs: &Prefs) -> Result<(), String> {
-    settings.set_regex_rules().map_err(|e| e.to_string())?;
+pub fn validate(settings: &mut Settings, prefs: &Prefs) -> Result<(), Refusal> {
+    settings
+        .set_regex_rules()
+        .map_err(|e| Refusal::Other(e.to_string()))?;
     if settings.dat_root.trim().is_empty() {
-        return Err("The DAT root is empty.".to_owned());
+        return Err(Refusal::Other("The DAT root is empty.".to_owned()));
     }
     if settings.cache_file.trim().is_empty() {
-        return Err("The cache file is empty.".to_owned());
+        return Err(Refusal::Other("The cache file is empty.".to_owned()));
     }
-    engine::check_paths(settings, prefs.allow_protected_paths).map_err(|e| e.to_string())
+    match engine::check_paths(settings, prefs.allow_protected_paths) {
+        Ok(()) => Ok(()),
+        Err(engine::EngineError::Protected(v)) => Err(Refusal::Protected(v)),
+        Err(e) => Err(Refusal::Other(e.to_string())),
+    }
 }
 
 #[cfg(test)]
@@ -1099,15 +1206,62 @@ mod tests {
         bad.ignore_files = vec!["regex:(unclosed".to_owned()];
         assert!(validate(&mut bad, &prefs)
             .unwrap_err()
+            .to_string()
             .contains("ignore pattern"));
 
         let mut fenced = Settings::default();
         fenced.dat_root = "/mnt/HHD16TB/DatRoot".to_owned();
-        let e = validate(&mut fenced, &prefs).unwrap_err();
+        let e = validate(&mut fenced, &prefs).unwrap_err().to_string();
         assert!(e.contains("protected directory"), "{e}");
 
         // No test turns the guard off: the default is on.
         assert!(!prefs.allow_protected_paths);
+    }
+
+    #[test]
+    fn the_refusal_names_the_safety_switch_and_only_the_guard_gets_the_button() {
+        let prefs = Prefs::default();
+        let mut fenced = Settings::default();
+        fenced.dir_mappings = vec![DirMapping {
+            dir_key: "RomVault".to_owned(),
+            dir_path: "/mnt/HHD16TB/Roms/RomVault/RomRoot".to_owned(),
+        }];
+        let Err(Refusal::Protected(found)) = validate(&mut fenced, &prefs) else {
+            panic!("the guard should refuse a ROM root under the protected directory");
+        };
+        assert_eq!(found[0].setting, "DirMapping RomVault");
+        let text = Refusal::Protected(found).to_string();
+        // The prefix comes from PROTECTED_PREFIXES, not from this test's own spelling of it.
+        let label = format!(
+            "Allow paths under {}",
+            rv_core::guard::PROTECTED_PREFIXES.join(", ")
+        );
+        assert!(
+            text.contains(&format!("Tick \"{label}\" under Safety on this page")),
+            "{text}"
+        );
+        assert!(
+            text.contains("/mnt/HHD16TB/Roms/RomVault/RomRoot"),
+            "{text}"
+        );
+
+        // A pattern that does not compile is not the guard's refusal, so it gets no button.
+        let mut bad = Settings::default();
+        bad.ignore_files = vec!["regex:(unclosed".to_owned()];
+        assert!(matches!(validate(&mut bad, &prefs), Err(Refusal::Other(_))));
+        // The guard is only reported when it is the one failure left.
+        bad.dir_mappings = fenced.dir_mappings.clone();
+        assert!(matches!(validate(&mut bad, &prefs), Err(Refusal::Other(_))));
+    }
+
+    #[test]
+    fn ticking_the_switch_lets_the_same_settings_through() {
+        let mut fenced = Settings::default();
+        fenced.dat_root = "/mnt/HHD16TB/DatRoot".to_owned();
+        let mut prefs = Prefs::default();
+        assert!(validate(&mut fenced, &prefs).is_err());
+        prefs.allow_protected_paths = true;
+        assert!(validate(&mut fenced, &prefs).is_ok());
     }
 
     #[test]

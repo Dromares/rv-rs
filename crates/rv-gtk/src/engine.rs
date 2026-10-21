@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 use rv_cache::{
     load_database, save_database, DatabaseError, DatabaseOptions, LoadSource, SaveError,
 };
-use rv_core::guard;
+use rv_core::guard::{self, PROTECTED_PREFIXES};
 use rv_core::progress::{CancelFlag, ProgressSink};
 use rv_core::{Database, ScanLevel, Settings};
 use rv_dat::update::{update_dats, UpdateError, UpdateOptions, UpdateReport};
@@ -28,6 +28,8 @@ use rv_online::salt::configured_source;
 use rv_online::Client;
 use rv_scan::db::{scan_files, ScanError, ScanReport, ScanRequest, ScanTarget};
 use rv_update::{Installed, Product, Update, UpdateConfig};
+
+use crate::prefs::Prefs;
 
 /// The name of the settings file when none is given.
 pub const DEFAULT_CONFIG: &str = "RomVault3cfg.xml";
@@ -57,13 +59,12 @@ impl fmt::Display for EngineError {
             EngineError::Settings(e) => write!(f, "{e}"),
             EngineError::Cache(e) => write!(f, "cache: {e}"),
             EngineError::Save(e) => write!(f, "saving the cache: {e}"),
-            EngineError::Protected(v) => {
-                write!(f, "refusing to work in a protected directory:")?;
-                for violation in v {
-                    write!(f, "\n  {violation}")?;
-                }
-                Ok(())
-            }
+            EngineError::Protected(v) => write!(
+                f,
+                "{}\nChange the paths in Settings, or to use them on purpose tick {}.",
+                protected_list(v),
+                safety_switch_location()
+            ),
             EngineError::Update(e) => write!(f, "{e}"),
             EngineError::Scan(e) => write!(f, "{e}"),
             EngineError::Online(e) => write!(f, "{e}"),
@@ -73,6 +74,45 @@ impl fmt::Display for EngineError {
 }
 
 impl std::error::Error for EngineError {}
+
+/// The caption of the switch that lifts the path guard. The prefixes come from
+/// [`PROTECTED_PREFIXES`], so no message types them out again.
+pub fn safety_switch_label() -> String {
+    format!("Allow paths under {}", PROTECTED_PREFIXES.join(", "))
+}
+
+/// Where the switch is, as every refusal says it.
+pub fn safety_switch_location() -> String {
+    format!(
+        "Settings \u{2192} General \u{2192} Safety \u{2192} \"{}\"",
+        safety_switch_label()
+    )
+}
+
+/// The refusal without the way out: the heading and one line per setting.
+pub fn protected_list(violations: &[guard::Violation]) -> String {
+    let mut text = "refusing to work in a protected directory:".to_owned();
+    for violation in violations {
+        text.push_str(&format!("\n  {violation}"));
+    }
+    text
+}
+
+/// What the settings dialog's OK does with its result: refuse a protected path unless the guard
+/// is lifted, write the settings file, then the preferences. A refusal writes nothing.
+pub fn commit_settings(
+    config_path: &Path,
+    prefs_path: &Path,
+    settings: &Settings,
+    prefs: &Prefs,
+) -> Result<(), EngineError> {
+    check_paths(settings, prefs.allow_protected_paths)?;
+    write_settings(config_path, settings)?;
+    if let Err(e) = prefs.save(prefs_path) {
+        eprintln!("rv-gtk: preferences not saved: {e}");
+    }
+    Ok(())
+}
 
 /// Read the settings file; a missing file gives ROMVault's first-run defaults. Relative paths in
 /// the result stay relative: they are taken from the directory the process runs in, like
