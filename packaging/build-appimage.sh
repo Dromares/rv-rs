@@ -57,6 +57,11 @@ hook="$appdir/apprun-hooks/linuxdeploy-plugin-gtk.sh"
 grep -q '^export GDK_BACKEND=x11' "$hook" || { echo "build-appimage: the GDK_BACKEND line is not in $hook" >&2; exit 1; }
 sed -i '/^export GDK_BACKEND=x11/d' "$hook"
 
+# rv-gtk plays no media and prints nothing. The plugin copies both of these GTK modules, but they
+# carry no rpath, so on a system with other versions of GStreamer or CUPS they load the system's
+# copy next to the bundled GLib and fail ("undefined symbol: g_sort_array"). GTK runs without them.
+rm -rf "$appdir"/usr/lib/gtk-4.0/*/media "$appdir"/usr/lib/gtk-4.0/*/printbackends
+
 # The icon theme GTK's own widgets (sort arrows, window buttons) draw from. The plugin copies none.
 mkdir -p "$appdir/usr/share/icons"
 cp -rL /usr/share/icons/Adwaita "$appdir/usr/share/icons/"
