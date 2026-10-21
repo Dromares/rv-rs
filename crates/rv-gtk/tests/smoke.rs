@@ -32,7 +32,7 @@ fn main() {
     }
     let dir = std::env::temp_dir().join(format!("rv-gtk-smoke-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
-    let result = run(&dir);
+    let result = run(&dir).and_then(|()| refusal(&dir));
     let _ = fs::remove_dir_all(&dir);
     if let Err(e) = result {
         eprintln!("smoke: FAILED: {e}");
@@ -83,14 +83,53 @@ fn run(dir: &std::path::Path) -> Result<(), String> {
     )
     .map_err(|e| e.to_string())?;
 
+    let (out, err) = run_window(
+        &cfg,
+        dir,
+        &["--select", "RomVault/Console/NES/Roms", "--game", "Alpha"],
+    )?;
+    // The tree has RomVault, Console, NES, Roms and ToSort; Alpha is selected with its two ROMs,
+    // and Beta is in the list too.
+    let line = out
+        .lines()
+        .find(|l| l.starts_with("smoke:"))
+        .ok_or_else(|| format!("no report in the output:\n{out}\n{err}"))?;
+    for needle in [
+        "tree_rows=5",
+        "selected=Some(\"RomVault/Console/NES/Roms\")",
+        "games=2",
+        "roms=2",
+    ] {
+        if !line.contains(needle) {
+            return Err(format!("{needle} is not in: {line}\n{err}"));
+        }
+    }
+    // At the minimum window size the whole filter row is inside the window.
+    layout(&out, &err)?;
+    // The cache was not rewritten by a smoke run.
+    if !err.contains("first frame with the tree") {
+        return Err(format!("the tree was never painted:\n{err}"));
+    }
+    println!("{line}");
+    Ok(())
+}
+
+/// Start the window on `cfg` at the smallest size the app allows, which is where the filter row
+/// and the lists have the least room, and collect what it reports.
+fn run_window(
+    cfg: &std::path::Path,
+    dir: &std::path::Path,
+    extra: &[&str],
+) -> Result<(String, String), String> {
+    fs::write(dir.join("prefs.conf"), b"width=1000\nheight=600\n").unwrap();
     let mut child = Command::new(env!("CARGO_BIN_EXE_rv-gtk"))
         .args(["--smoke", "--config"])
-        .arg(&cfg)
+        .arg(cfg)
         .arg("--prefs")
         .arg(dir.join("prefs.conf"))
         .arg("--online-config")
         .arg(dir.join("online.conf"))
-        .args(["--select", "RomVault/Console/NES/Roms", "--game", "Alpha"])
+        .args(extra)
         .env("GSK_RENDERER", "cairo")
         .env("NO_AT_BRIDGE", "1")
         .stdout(Stdio::piped())
@@ -124,26 +163,50 @@ fn run(dir: &std::path::Path) -> Result<(), String> {
     if !status.success() {
         return Err(format!("rv-gtk exited with {status}\n{err}"));
     }
-    // The tree has RomVault, Console, NES, Roms and ToSort; Alpha is selected with its two ROMs,
-    // and Beta is in the list too.
+    Ok((out, err))
+}
+
+/// The layout line of a run at the minimum window: the window is 10 px narrower than the 1000 px
+/// asked for (the frame), and no tick box or search field may be past its edge. Returns the
+/// height of the games list.
+fn layout(out: &str, err: &str) -> Result<i32, String> {
     let line = out
         .lines()
-        .find(|l| l.starts_with("smoke:"))
-        .ok_or_else(|| format!("no report in the output:\n{out}\n{err}"))?;
-    for needle in [
-        "tree_rows=5",
-        "selected=Some(\"RomVault/Console/NES/Roms\")",
-        "games=2",
-        "roms=2",
-    ] {
-        if !line.contains(needle) {
-            return Err(format!("{needle} is not in: {line}\n{err}"));
-        }
+        .find(|l| l.starts_with("smoke-layout:"))
+        .ok_or_else(|| format!("no layout report in the output:\n{out}\n{err}"))?;
+    let number = |key: &str| -> Result<i32, String> {
+        line.split_whitespace()
+            .find_map(|w| w.strip_prefix(key))
+            .and_then(|v| v.parse().ok())
+            .ok_or_else(|| format!("no {key} in: {line}"))
+    };
+    let (width, right) = (number("window_width=")?, number("filter_row_right=")?);
+    if width > 1000 || right > width {
+        return Err(format!(
+            "the filter row is clipped at the minimum window ({right} px of {width}): {line}"
+        ));
     }
-    // The cache was not rewritten by a smoke run.
-    if !err.contains("first frame with the tree") {
-        return Err(format!("the tree was never painted:\n{err}"));
+    number("games_height=")
+}
+
+/// A refusal of the guard at the minimum window: the banner is long, and the filter row and the
+/// games list must still be there. The path cannot exist on disk.
+fn refusal(dir: &std::path::Path) -> Result<(), String> {
+    let mut s = Settings::default();
+    s.dat_root = "/mnt/HHD16TB/rv-rs-dan1888-nonexistent/DatRoot".to_owned();
+    s.cache_file = dir.join("refused.Cache").to_string_lossy().into_owned();
+    s.dir_mappings[0].dir_path = "/mnt/HHD16TB/rv-rs-dan1888-nonexistent/RomRoot".to_owned();
+    let cfg = dir.join("refused.xml");
+    engine::write_settings(&cfg, &s).map_err(|e| e.to_string())?;
+    let (out, err) = run_window(&cfg, dir, &[])?;
+    let height = layout(&out, &err)?;
+    println!("smoke: refusal banner, games list {height} px high");
+    // The banner left the list 93 px (its header and about three rows) while the info block
+    // kept its room, and 213 px once the block gave way.
+    if height < 120 {
+        return Err(format!(
+            "the games list is {height} px high under the refusal banner:\n{out}"
+        ));
     }
-    println!("{line}");
     Ok(())
 }
