@@ -34,7 +34,8 @@ export NO_STRIP=1
 mkdir "$work/bin"
 cp "$LINUXDEPLOY" "$work/bin/linuxdeploy"
 cp "$GTK_PLUGIN" "$work/bin/linuxdeploy-plugin-gtk.sh"
-chmod +x "$work/bin/linuxdeploy" "$work/bin/linuxdeploy-plugin-gtk.sh"
+cp "$APPIMAGETOOL" "$work/bin/appimagetool"
+chmod +x "$work/bin/linuxdeploy" "$work/bin/linuxdeploy-plugin-gtk.sh" "$work/bin/appimagetool"
 export PATH="$work/bin:$PATH"
 
 cp "$RV_GTK" "$work/rv-gtk"
@@ -75,7 +76,7 @@ while IFS= read -r -d '' lib; do
       echo "$p" >> "$work/packages"; break
     fi
   done
-done < <(find "$appdir/usr" \( -type f -o -type l \) -name '*.so*' -print0)
+done < <(find "$appdir/usr" -type f -name '*.so*' -print0)
 echo adwaita-icon-theme >> "$work/packages"
 sort -u "$work/packages" -o "$work/packages"
 [ -s "$work/packages" ] || { echo "build-appimage: no Debian package found for any bundled library" >&2; exit 1; }
